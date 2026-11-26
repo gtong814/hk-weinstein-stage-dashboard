@@ -6,546 +6,616 @@
   <title>港股通 Stan Weinstein 四階段分析掃描儀表板</title>
   <style>
     :root {
-      --bg-main: #0d1117;
-      --bg-card: #161b22;
-      --bg-hover: #1f242c;
-      --border: #30363d;
-      --text-primary: #e6edf3;
-      --text-secondary: #8b949e;
-      /* 綠升紅跌配色 */
-      --up-color: #00c853;
-      --up-bg: rgba(0, 200, 83, 0.14);
-      --down-color: #ff3d00;
-      --down-bg: rgba(255, 61, 0, 0.14);
-      --warn-color: #f59e0b;
-      --warn-bg: rgba(245, 158, 11, 0.14);
-      --accent: #58a6ff;
-      --ggt-color: #38bdf8;
-      --ggt-bg: rgba(56, 189, 248, 0.14);
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --surface-alt: #162032;
+      --border: #334155;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      /* 港股習慣：綠升紅跌 */
+      --up: #22c55e;
+      --up-bg: rgba(34, 197, 94, 0.14);
+      --down: #ef4444;
+      --down-bg: rgba(239, 68, 68, 0.14);
+      --warn: #f59e0b;
+      --warn-bg: rgba(245, 158, 11, 0.15);
+      --accent: #38bdf8;
+      --accent-bg: rgba(56, 189, 248, 0.15);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang HK", "Microsoft JhengHei", sans-serif;
-      background-color: var(--bg-main);
-      color: var(--text-primary);
+      background-color: var(--bg);
+      color: var(--text);
       line-height: 1.5;
       padding: 20px;
     }
 
-    .container { max-width: 1440px; margin: 0 auto; }
+    .container { max-width: 1520px; margin: 0 auto; }
 
+    /* Header */
     header {
       display: flex;
       flex-wrap: wrap;
       justify-content: space-between;
-      align-items: center;
+      align-items: flex-end;
+      gap: 12px;
       padding-bottom: 16px;
       border-bottom: 1px solid var(--border);
       margin-bottom: 20px;
-      gap: 12px;
     }
-
-    h1 { font-size: 1.38rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
-    .subtitle { color: var(--text-secondary); font-size: 0.84rem; margin-top: 2px; }
-    .header-badges { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .badge-update {
-      background: var(--bg-card);
+    header h1 { font-size: 1.55rem; font-weight: 700; letter-spacing: 0.3px; }
+    header p { color: var(--text-muted); font-size: 0.9rem; margin-top: 4px; }
+    .meta-badges { display: flex; gap: 10px; font-size: 0.85rem; color: var(--text-muted); }
+    .meta-badge {
+      background: var(--surface);
       border: 1px solid var(--border);
-      padding: 6px 12px;
+      padding: 5px 12px;
       border-radius: 6px;
-      font-size: 0.8rem;
-      color: var(--text-secondary);
     }
 
-    /* 頂部三欄總覽：大盤基準 + 恒生科技 RS + 港股通市場廣度 */
-    .top-grid {
+    /* 3 Macro Cards */
+    .macro-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
       gap: 16px;
-      margin-bottom: 18px;
+      margin-bottom: 22px;
     }
-    @media (max-width: 1080px) { .top-grid { grid-template-columns: 1fr; } }
-
-    .card {
-      background: var(--bg-card);
+    .macro-card {
+      background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 10px;
-      padding: 16px;
+      padding: 16px 18px;
     }
-    .card-title {
-      font-size: 0.82rem;
-      color: var(--text-secondary);
-      letter-spacing: 0.03em;
+    .macro-card h2 {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      font-weight: 600;
       margin-bottom: 8px;
+    }
+    .macro-main {
       display: flex;
       justify-content: space-between;
-      align-items: center;
+      align-items: baseline;
+      margin-bottom: 6px;
     }
-
-    .regime-value { font-size: 1.06rem; font-weight: 700; margin-bottom: 10px; }
-    .sma-pills { display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.8rem; }
-    .pill {
-      padding: 4px 9px;
+    .macro-ticker { font-size: 1.25rem; font-weight: 700; }
+    .macro-status {
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 3px 9px;
       border-radius: 5px;
-      border: 1px solid var(--border);
-      background: var(--bg-main);
     }
+    .macro-desc { font-size: 0.84rem; color: var(--text-muted); }
+    .breadth-bar {
+      display: flex;
+      height: 10px;
+      border-radius: 5px;
+      overflow: hidden;
+      background: #334155;
+      margin: 10px 0 8px;
+    }
+    .breadth-bull { background: var(--up); }
+    .breadth-bear { background: var(--down); }
 
-    /* 細分賽道過濾列 */
-    .subsector-bar {
+    /* Filter Tabs & Quant Toggles */
+    .controls-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    .tab-row {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin-bottom: 16px;
-      align-items: center;
+      margin-bottom: 12px;
     }
-    .subsector-label { font-size: 0.82rem; color: var(--text-secondary); margin-right: 4px; }
-    .sub-pill {
-      background: var(--bg-card);
-      color: var(--text-secondary);
+    .tab-btn {
+      background: var(--surface-alt);
+      color: var(--text-muted);
       border: 1px solid var(--border);
-      padding: 5px 12px;
-      border-radius: 999px;
-      font-size: 0.8rem;
+      padding: 7px 13px;
+      border-radius: 7px;
+      font-size: 0.86rem;
+      font-weight: 600;
       cursor: pointer;
       transition: all 0.15s;
     }
-    .sub-pill:hover, .sub-pill.active {
+    .tab-btn:hover { border-color: var(--accent); color: var(--text); }
+    .tab-btn.active {
+      background: var(--accent-bg);
       border-color: var(--accent);
-      color: var(--text-primary);
-      background: #21262d;
-      font-weight: 600;
+      color: var(--accent);
     }
 
-    /* 主體雙欄佈局 */
-    .main-layout {
-      display: grid;
-      grid-template-columns: 1fr 330px;
-      gap: 16px;
-      align-items: start;
-    }
-    @media (max-width: 1180px) { .main-layout { grid-template-columns: 1fr; } }
-
-    .controls {
+    .quant-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 14px;
+      justify-content: space-between;
       align-items: center;
+      gap: 10px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--border);
     }
-    .filter-btn {
-      background: var(--bg-main);
-      color: var(--text-secondary);
+    .quant-toggles { display: flex; flex-wrap: wrap; gap: 8px; }
+    .toggle-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg);
       border: 1px solid var(--border);
-      padding: 6px 11px;
-      border-radius: 6px;
-      font-size: 0.8rem;
+      color: var(--text-muted);
+      padding: 5px 11px;
+      border-radius: 20px;
+      font-size: 0.82rem;
       cursor: pointer;
+      user-select: none;
     }
-    .filter-btn.active {
-      background: #21262d;
-      color: var(--text-primary);
-      border-color: var(--accent);
+    .toggle-chip.checked {
+      background: var(--up-bg);
+      border-color: var(--up);
+      color: var(--up);
       font-weight: 600;
     }
     .search-input {
-      background: var(--bg-main);
+      background: var(--bg);
       border: 1px solid var(--border);
-      color: var(--text-primary);
+      color: var(--text);
       padding: 6px 12px;
       border-radius: 6px;
-      font-size: 0.84rem;
-      margin-left: auto;
-      min-width: 200px;
+      font-size: 0.85rem;
+      min-width: 230px;
     }
+    .search-input:focus { outline: none; border-color: var(--accent); }
 
-    .table-wrap { overflow-x: auto; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-    th, td {
-      padding: 10px 9px;
+    /* Table */
+    .table-wrapper {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow-x: auto;
+      margin-bottom: 22px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+    thead th {
+      background: var(--surface-alt);
+      color: var(--text-muted);
+      font-weight: 600;
       text-align: left;
+      padding: 12px 12px;
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
     }
-    th { color: var(--text-secondary); font-weight: 600; font-size: 0.77rem; }
-    tr:hover td { background: var(--bg-hover); }
+    tbody td {
+      padding: 11px 12px;
+      border-bottom: 1px solid rgba(51, 65, 85, 0.55);
+      vertical-align: middle;
+    }
+    tbody tr:hover { background: rgba(56, 189, 248, 0.05); }
 
-    .up { color: var(--up-color); font-weight: 600; }
-    .down { color: var(--down-color); font-weight: 600; }
-    .warn { color: var(--warn-color); font-weight: 600; }
+    .text-up { color: var(--up); font-weight: 600; }
+    .text-down { color: var(--down); font-weight: 600; }
+    .text-warn { color: var(--warn); font-weight: 600; }
+    .text-muted { color: var(--text-muted); font-size: 0.78rem; }
 
-    .ticker-sub { font-size: 0.77rem; color: var(--text-secondary); }
-    .ggt-tag {
+    .badge {
       display: inline-block;
-      background: var(--ggt-bg);
-      color: var(--ggt-color);
-      font-size: 0.7rem;
-      padding: 1px 6px;
+      padding: 2px 7px;
       border-radius: 4px;
+      font-size: 0.76rem;
       font-weight: 600;
-      margin-left: 4px;
+      white-space: nowrap;
     }
-    .stage-badge {
-      display: inline-block;
-      padding: 3px 8px;
-      border-radius: 999px;
-      font-size: 0.75rem;
-      font-weight: 600;
-    }
-    .type-buy_2a, .type-hold_2 { background: var(--up-bg); color: var(--up-color); }
-    .type-short_4a, .type-avoid_4, .type-exit_50 { background: var(--down-bg); color: var(--down-color); }
-    .type-trim_2b, .type-watch, .type-stage_3 { background: var(--warn-bg); color: var(--warn-color); }
-    .type-neutral { background: rgba(139, 148, 158, 0.15); color: var(--text-secondary); }
+    .badge-up { background: var(--up-bg); color: var(--up); }
+    .badge-down { background: var(--down-bg); color: var(--down); }
+    .badge-warn { background: var(--warn-bg); color: var(--warn); }
+    .badge-info { background: var(--accent-bg); color: var(--accent); }
 
-    .note-cell { white-space: normal; min-width: 220px; font-size: 0.79rem; color: var(--text-secondary); }
-    .table-footer {
+    .advice-cell { max-width: 340px; line-height: 1.45; font-size: 0.83rem; }
+
+    /* Bottom Checklist */
+    .checklist-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+    .checklist-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-top: 12px;
-      font-size: 0.8rem;
-      color: var(--text-secondary);
+      margin-bottom: 12px;
     }
-
-    /* 右側互動檢查清單 */
-    .checklist-item {
-      display: flex;
-      gap: 10px;
-      padding: 8px 0;
-      border-bottom: 1px solid var(--border);
-      font-size: 0.82rem;
-      cursor: pointer;
-    }
-    .checklist-item:last-child { border-bottom: none; }
-    .checklist-item input { margin-top: 3px; accent-color: var(--up-color); cursor: pointer; }
-    .checklist-item.done span { text-decoration: line-through; color: var(--text-secondary); }
+    .checklist-header h3 { font-size: 1.02rem; }
     .reset-btn {
       background: transparent;
       border: 1px solid var(--border);
-      color: var(--text-secondary);
-      font-size: 0.75rem;
-      padding: 3px 9px;
-      border-radius: 4px;
+      color: var(--text-muted);
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 0.82rem;
       cursor: pointer;
     }
+    .reset-btn:hover { border-color: var(--down); color: var(--down); }
+    .checklist-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+      gap: 10px;
+    }
+    .check-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 0.86rem;
+    }
+    .check-item input { margin-top: 3px; accent-color: var(--up); width: 16px; height: 16px; }
+    .check-item.done span { text-decoration: line-through; color: var(--text-muted); }
   </style>
 </head>
 <body>
-  <div class="container">
-    <header>
-      <div>
-        <h1>港股通 Stan Weinstein 現代版四階段分析儀表板</h1>
-        <div class="subtitle">盈富基金 (2800.HK) 基準 · 南方恒生科技 (3033.HK) 相對強度 · 港股通市場廣度與北水動向（綠升紅跌）</div>
-      </div>
-      <div class="header-badges">
-        <div class="badge-update" id="universeBadge">股票池：載入中...</div>
-        <div class="badge-update" id="updatedAt">更新時間：載入中...</div>
-      </div>
-    </header>
+<div class="container">
+  <header>
+    <div>
+      <h1>港股通 Stan Weinstein 現代版四階段分析儀表板</h1>
+      <p>盈富基金 (2800.HK) 基準 · 南方恒生科技 (3033.HK) 相對強度 · 200日線斜率共振與分級止盈（綠升紅跌）</p>
+    </div>
+    <div class="meta-badges">
+      <div class="meta-badge" id="poolCount">股票池：載入中...</div>
+      <div class="meta-badge" id="updateTime">更新時間：載入中...</div>
+    </div>
+  </header>
 
-    <!-- 頂部三欄：大盤基準 + 恒生科技 RS + 港股通四階段市場廣度 -->
-    <div class="top-grid">
-      <div class="card">
-        <div class="card-title">
-          <span>1. 大盤趨勢基準（見樹先見林）</span>
-          <span>2800.HK</span>
-        </div>
-        <div class="regime-value" id="marketRegime">-</div>
-        <div class="sma-pills" id="marketPills"></div>
+  <!-- 頂部三大宏觀卡 -->
+  <section class="macro-grid">
+    <div class="macro-card">
+      <h2>1. 大盤趨勢基準（見樹先見林）</h2>
+      <div class="macro-main">
+        <span class="macro-ticker">2800.HK <span id="hsiPrice" style="font-size:0.95rem;font-weight:500;">-</span></span>
+        <span class="macro-status badge-up" id="hsiStage">-</span>
       </div>
-
-      <div class="card">
-        <div class="card-title">
-          <span>2. 科技板塊相對強度（對比 2800.HK）</span>
-          <span>3033.HK</span>
-        </div>
-        <div class="regime-value" id="sectorRegime">-</div>
-        <div class="sma-pills" id="sectorPills"></div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">
-          <span>3. 港股通四階段市場廣度</span>
-          <span id="breadthTotal">-</span>
-        </div>
-        <div class="regime-value" id="breadthHeadline">-</div>
-        <div class="sma-pills" id="breadthPills"></div>
-      </div>
+      <div class="macro-desc" id="hsiAdvice">載入大盤環境評估中...</div>
     </div>
 
-    <!-- 港股通細分賽道過濾列 -->
-    <div class="subsector-bar" id="subsectorBar"></div>
-
-    <!-- 主體：左側個股掃描表 + 右側交易紀律清單 -->
-    <div class="main-layout">
-      <div class="card">
-        <div class="controls">
-          <button class="filter-btn active" data-filter="ALL">全部港股通</button>
-          <button class="filter-btn" data-filter="BUY2A">🚀 Stage 2A 突破</button>
-          <button class="filter-btn" data-filter="HOLD2">📈 Stage 2 多頭</button>
-          <button class="filter-btn" data-filter="GAP">⚡ 早期跳空未補</button>
-          <button class="filter-btn" data-filter="NORTHBOUND">💰 北水增持</button>
-          <button class="filter-btn" data-filter="EXIT">⚠️ 破50日線 / 2B止盈</button>
-          <button class="filter-btn" data-filter="SHORT">🔻 Stage 4A / 空頭</button>
-          <input type="text" class="search-input" id="searchInput" placeholder="搜尋港股通代號或名稱 (如 1810 / 小米)..." />
-        </div>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>代號 / 名稱</th>
-                <th>賽道與北水動向</th>
-                <th>收盤價 (HK$)</th>
-                <th>四階段判定</th>
-                <th>50日線乖離</th>
-                <th>200日線乖離</th>
-                <th>量比 (20D)</th>
-                <th>未補缺口</th>
-                <th>實戰操作與風控建議</th>
-              </tr>
-            </thead>
-            <tbody id="stockTableBody"></tbody>
-          </table>
-        </div>
-
-        <div class="table-footer">
-          <span id="rowCountInfo">-</span>
-          <button class="reset-btn" id="toggleExpandBtn" onclick="toggleExpandAll()" style="display:none;">展開全部港股通標的</button>
-        </div>
+    <div class="macro-card">
+      <h2>2. 科技板塊相對強度（對比 2800.HK）</h2>
+      <div class="macro-main">
+        <span class="macro-ticker">3033.HK <span id="hstechPrice" style="font-size:0.95rem;font-weight:500;">-</span></span>
+        <span class="macro-status badge-info" id="hstechRsStatus">-</span>
       </div>
-
-      <div class="card">
-        <div class="card-title">
-          <span>港股通盤前與持倉紀律清單</span>
-          <button class="reset-btn" onclick="resetChecklist()">重置勾選</button>
-        </div>
-        <div id="checklistContainer"></div>
-      </div>
+      <div class="macro-desc" id="hstechAdvice">載入板塊風格輪動評估中...</div>
     </div>
-  </div>
 
-  <script>
-    const CHECKLIST_ITEMS = [
-      "確認盈富基金 (2800.HK) 未處於跌破 200 日線的 Stage 4 空頭格局",
-      "檢視南方恒生科技 (3033.HK) 相對 2800.HK 的 20 日 RS 與港股通多頭廣度",
-      "嚴禁買入仍位於 200 日均線下方的 Stage 4 弱勢港股通標的",
-      "Stage 2A 突破需伴隨成交量放大（20 日均量比 >= 1.5x）與北水配合",
-      "執行「半倉＋半倉」：突破買 50%，縮量回測頸線守穩再加碼 50%",
-      "現代版防守線：強勢股一旦跌破 50 日均線即果斷離場觀望",
-      "絕不向下攤平（Averaging Down），只對強勢突破贏家向上加碼",
-      "Stage 2B 遠離 200 日線逾 20% 且出現後期跳空缺口時分批止盈",
-      "Stage 4A 轉空防守：反彈站回 150 日線減半，站回 50 日線全數平倉"
-    ];
+    <div class="macro-card">
+      <h2>3. 港股通四階段市場廣度</h2>
+      <div class="macro-main">
+        <span class="macro-ticker" id="breadthSummary">-</span>
+        <span class="text-muted" id="breadthRatioText">-</span>
+      </div>
+      <div class="breadth-bar">
+        <div class="breadth-bull" id="bullBar" style="width:50%"></div>
+        <div style="flex:1"></div>
+        <div class="breadth-bear" id="bearBar" style="width:20%"></div>
+      </div>
+      <div class="macro-desc">多頭（Stage 2A/2）佔比擴大代表升勢具廣泛資金支撐；若收窄則防範權重股虛撐。</div>
+    </div>
+  </section>
 
-    const FALLBACK_DATA = {
-      updated_at: "示範數據（執行 Actions 後自動載入最新港股通盤後數據）",
-      universe_source: "港股通核心觀察池",
-      market: {
-        symbol: "盈富基金 (2800.HK)",
-        close: 22.40,
-        sma50: 23.98,
-        sma200: 24.60,
-        above_50: false,
-        above_200: false,
-        regime: "空頭警戒（跌破 200 日線）"
+  <!-- 篩選標籤與新增量化過濾開關 -->
+  <section class="controls-panel">
+    <div class="tab-row" id="tabContainer">
+      <button class="tab-btn active" data-filter="all">全部港股通</button>
+      <button class="tab-btn" data-filter="stage2a">🚀 Stage 2A 突破</button>
+      <button class="tab-btn" data-filter="stage2">📈 Stage 2 多頭</button>
+      <button class="tab-btn" data-filter="gap">⚡ 早期跳空未補</button>
+      <button class="tab-btn" data-filter="northbound">💰 北水增持</button>
+      <button class="tab-btn" data-filter="warning">⚠️ 破50日線 / 2B止盈</button>
+      <button class="tab-btn" data-filter="stage4">🔻 Stage 4A / 空頭</button>
+    </div>
+
+    <div class="quant-row">
+      <div class="quant-toggles">
+        <div class="toggle-chip" id="toggleResonance">🏆 黃金共振（200D走平/向上 + RS領先）</div>
+        <div class="toggle-chip" id="toggleGoldenEntry">🎯 黃金起漲區（50D乖離 +2%~+8% & 量比 1.5x~3.5x）</div>
+        <div class="toggle-chip" id="toggleFilterFake">🛡️ 過濾假突破（排除量比低於1.2x / 天量派發 / 北水淨流出）</div>
+      </div>
+      <input type="text" class="search-input" id="searchInput" placeholder="搜尋代號、名稱或賽道..." />
+    </div>
+  </section>
+
+  <!-- 掃描結果表格 -->
+  <section class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>代號 / 名稱</th>
+          <th>賽道與北水動向</th>
+          <th>收盤價 (HK$)</th>
+          <th>四階段判定</th>
+          <th>200D斜率 & RS 強度</th>
+          <th>50日線乖離</th>
+          <th>200日線乖離</th>
+          <th>量比 (20D)</th>
+          <th>未補缺口</th>
+          <th>實戰操作與風控建議</th>
+        </tr>
+      </thead>
+      <tbody id="stockTableBody">
+        <tr><td colspan="10" style="text-align:center;padding:24px;color:#94a3b8;">正在載入掃描數據...</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 底部盤前與持倉紀律清單 -->
+  <section class="checklist-card">
+    <div class="checklist-header">
+      <h3>港股通盤前與持倉紀律清單（量化核對）</h3>
+      <button class="reset-btn" id="resetChecklistBtn">重置勾選</button>
+    </div>
+    <div class="checklist-grid" id="checklistContainer"></div>
+  </section>
+</div>
+
+<script>
+  const CHECKLIST_ITEMS = [
+    "1. 見樹先見林：確認 2800.HK 處於 Stage 2 多頭環境（若大盤轉弱，個股無量初破50D線亦須直接減倉）。",
+    "2. 起漲盈虧比：新開倉 Stage 2A 標的之 50 日線乖離率須介乎 +2% 至 +8%，嚴禁追買乖離高於 +12% 之標的。",
+    "3. 量能真偽驗證：確認突破當日 20 日量比達 1.5x 至 3.5x 飽滿放量，排除低於 1.2x 無量虛破或高於 5.0x 長上影派發。",
+    "4. 大升浪雙因子：優先重倉「200日線走平/向上 + RS領先創高」之黃金共振股（單隻上限 10%-15%），200D仍向下者僅輕倉試探。",
+    "5. 北水 T+2 驗證：結合盤後十大成交活躍股與近 3-5 日北水淨流入趨勢，避開「股價破頂、北水淨賣出」背離陷阱。",
+    "6. 分級止盈紀律：觸發 Level 1（2B假突破/乖離逾18%滯漲）先減 30%-50%；確認破 50 日線（Level 3）果斷減至底倉。"
+  ];
+
+  // 內置演示數據（當同目錄下尚無 data.json 時自動載入）
+  const SAMPLE_DATA = {
+    updated_at: "2026-11-26 16:30 HKT（演示模式）",
+    universe_count: 4,
+    macro: {
+      hsi_price: "20.85 (+1.12%)",
+      hsi_stage: "📈 Stage 2 多頭",
+      hsi_advice: "2800.HK 穩守 50 日及 200 日線上方，大盤處於多頭環境，可執行標準倉位進攻策略。",
+      hstech_price: "4.62 (+1.85%)",
+      hstech_rs: "RS 站穩 50D 均線走強",
+      hstech_advice: "3033.HK 跑贏盈富基金，資金偏好高彈性科技與半導體成長賽道。"
+    },
+    stocks: [
+      {
+        symbol: "9660.HK", name: "地平線機器人-W", sector: "智能駕駛 / AI芯片", nb_status: "北水連續淨買入",
+        close: 6.48, pct_change: 5.37, stage: "🚀 Stage 2A 突破", stage_code: "stage2a",
+        resonance_tier: "黃金共振", slope_rs_label: "200D走平/向上 (+1.8%) · RS領先創高",
+        bias_50d: 5.4, bias_200d: 9.2, vol_ratio: 2.35, gap: "HK$6.18-6.25",
+        is_golden_resonance: true, is_golden_entry: true, is_fake_risk: false,
+        advice: "【首選買點 · 標準倉 10-15%】乖離與量比均在黃金區且雙因子共振；止損參考 HK$6.06（50D線下1.5%）。",
+        tags: ["stage2a", "stage2", "gap", "northbound"]
       },
-      sectors: [
-        { etf: "3033.HK", name: "南方恒生科技 ETF (3033.HK)", close: 3.37, sma50: 3.94, sma200: 4.54, above_50: false, above_200: false, rs_20d: -5.17, is_strong: false }
-      ],
-      breadth: { total: 34, stage2a_count: 1, stage2_count: 4, stage4_count: 26, exit50_count: 2, stage2_pct: 11.8, stage4_pct: 76.5 },
-      stocks: [
-        { ticker: "1810.HK", name: "小米集團-W", is_ggt: true, southbound_flow: "北水增持", sector_etf: "3033.HK", sub_sector: "智能生態與機器人", sector_strong: false, close: 34.20, change_pct: 1.5, dist_50: -4.2, dist_200: -8.5, vol_ratio: 1.15, unfilled_gap: null, stage: "Stage 4 下跌趨勢", signal_type: "avoid_4", action_note: "處於第四階段空頭格局，切忌逆勢抄底或向下攤平" }
-      ]
-    };
-
-    let appData = FALLBACK_DATA;
-    let currentFilter = "ALL";
-    let currentSubSector = "ALL";
-    let showAllRows = false;
-    const DEFAULT_ROW_LIMIT = 120;
-
-    async function init() {
-      try {
-        const res = await fetch("./data/scan_results.json?t=" + Date.now());
-        if (res.ok) appData = await res.json();
-      } catch (e) {
-        console.warn("Using fallback sample data until scan_results.json is generated.");
+      {
+        symbol: "0981.HK", name: "中芯國際", sector: "半導體製造", nb_status: "北水連續淨買入",
+        close: 31.20, pct_change: 2.13, stage: "📈 Stage 2 多頭", stage_code: "stage2",
+        resonance_tier: "黃金共振", slope_rs_label: "200D穩步向上 (+6.4%) · RS領先創高",
+        bias_50d: 3.1, bias_200d: 18.5, vol_ratio: 0.78, gap: "無",
+        is_golden_resonance: true, is_golden_entry: false, is_fake_risk: false,
+        advice: "【多頭持有 · 黃金共振】正處縮量回踩50D線低吸觀察窗（量比低於0.8x），移動止損參考 HK$30.26。",
+        tags: ["stage2", "northbound"]
+      },
+      {
+        symbol: "9880.HK", name: "優必選", sector: "人形機器人", nb_status: "北水淨流出",
+        close: 118.40, pct_change: -1.66, stage: "⚠️ 2B止盈（高位派發）", stage_code: "warning",
+        resonance_tier: "早期先鋒", slope_rs_label: "200D仍微降 (-0.9%) · RS強勢領先",
+        bias_50d: 19.6, bias_200d: 14.2, vol_ratio: 2.85, gap: "無",
+        is_golden_resonance: false, is_golden_entry: false, is_fake_risk: true,
+        advice: "【Level 1 主動減倉 30%-50%】50D乖離達19.6%高位放量滯漲且近3日北水轉淨賣出。停止追高，止損上移。",
+        tags: ["warning"]
+      },
+      {
+        symbol: "1833.HK", name: "平安好醫生", sector: "互聯網醫療", nb_status: "北水持平",
+        close: 12.10, pct_change: -3.20, stage: "⚠️ 破50日線（確認轉弱）", stage_code: "warning",
+        resonance_tier: "弱勢結構", slope_rs_label: "200D向下 (-3.5%) · RS弱於大市",
+        bias_50d: -3.4, bias_200d: -8.1, vol_ratio: 1.72, gap: "無",
+        is_golden_resonance: false, is_golden_entry: false, is_fake_risk: true,
+        advice: "【Level 3 減倉 70%-75%】放量擊穿50D線(乖離-3.4%/量比1.72x)；50D線下彎且RS跌破均線。",
+        tags: ["warning"]
       }
-      renderTopCards();
-      renderSubSectors();
-      renderTable();
-      renderChecklist();
-    }
+    ]
+  };
 
-    function renderTopCards() {
-      document.getElementById("updatedAt").textContent = "更新：" + appData.updated_at;
-      document.getElementById("universeBadge").textContent = "股票池：" + (appData.universe_source || "港股通觀察池");
+  let dashboardData = SAMPLE_DATA;
+  let currentTab = "all";
+  let filterResonance = false;
+  let filterGoldenEntry = false;
+  let filterFakeBreakout = false;
+  let searchQuery = "";
 
-      // 1. 盈富基金 (2800.HK)
-      const m = appData.market;
-      const regimeEl = document.getElementById("marketRegime");
-      regimeEl.textContent = `HK$${m.close.toFixed(2)} · ${m.regime}`;
-      regimeEl.className = "regime-value " + (m.above_200 ? (m.above_50 ? "up" : "warn") : "down");
-
-      document.getElementById("marketPills").innerHTML = `
-        <span class="pill">50 SMA: <b class="${m.above_50 ? 'up' : 'down'}">HK$${m.sma50.toFixed(2)}</b></span>
-        <span class="pill">200 SMA: <b class="${m.above_200 ? 'up' : 'down'}">HK$${m.sma200.toFixed(2)}</b></span>
-      `;
-
-      // 2. 南方恒生科技 ETF (3033.HK)
-      const sec = appData.sectors && appData.sectors[0];
-      if (sec) {
-        const secRegimeEl = document.getElementById("sectorRegime");
-        const rsSign = sec.rs_20d >= 0 ? "+" : "";
-        secRegimeEl.textContent = `HK$${sec.close.toFixed(2)} · 20日 RS: ${rsSign}${sec.rs_20d}%`;
-        secRegimeEl.className = "regime-value " + (sec.is_strong ? "up" : (sec.above_200 ? "warn" : "down"));
-
-        document.getElementById("sectorPills").innerHTML = `
-          <span class="pill">狀態: <b class="${sec.is_strong ? 'up' : 'warn'}">${sec.is_strong ? '★強勢' : '偏弱'}</b></span>
-          <span class="pill">50 SMA: <b class="${sec.above_50 ? 'up' : 'down'}">HK$${(sec.sma50 || 0).toFixed(2)}</b></span>
-          <span class="pill">200 SMA: <b class="${sec.above_200 ? 'up' : 'down'}">HK$${(sec.sma200 || 0).toFixed(2)}</b></span>
-        `;
+  async function initDashboard() {
+    try {
+      const res = await fetch(`./data.json?t=${Date.now()}`);
+      if (res.ok) {
+        dashboardData = await res.json();
       }
-
-      // 3. 港股通市場廣度
-      const b = appData.breadth || { total: appData.stocks.length, stage2a_count: 0, stage2_count: 0, stage4_count: 0, exit50_count: 0, stage2_pct: 0, stage4_pct: 0 };
-      document.getElementById("breadthTotal").textContent = `有效樣本 ${b.total} 隻`;
-      const bHead = document.getElementById("breadthHeadline");
-      bHead.textContent = `Stage 2 多頭佔比 ${b.stage2_pct}% · Stage 4 空頭 ${b.stage4_pct}%`;
-      bHead.className = "regime-value " + (b.stage2_pct >= 50 ? "up" : (b.stage2_pct >= 25 ? "warn" : "down"));
-
-      document.getElementById("breadthPills").innerHTML = `
-        <span class="pill">2A突破/觀察: <b class="up">${b.stage2a_count}</b></span>
-        <span class="pill">Stage 2 總計: <b class="up">${b.stage2_count}</b></span>
-        <span class="pill">破50線警訊: <b class="warn">${b.exit50_count}</b></span>
-        <span class="pill">Stage 4 空頭: <b class="down">${b.stage4_count}</b></span>
-      `;
+    } catch (e) {
+      console.info("使用內置演示數據渲染，放入 data.json 後將自動切換為實盤掃描數據。");
     }
+    renderMacro();
+    renderTable();
+    renderChecklist();
+  }
 
-    function renderSubSectors() {
-      const subSectors = ["ALL", ...new Set(appData.stocks.map(s => s.sub_sector).filter(Boolean))];
-      const bar = document.getElementById("subsectorBar");
-      bar.innerHTML = `<span class="subsector-label">港股通賽道：</span>` + subSectors.map(sub => {
-        const label = sub === "ALL" ? "全部賽道" : sub;
-        return `<button class="sub-pill ${currentSubSector === sub ? 'active' : ''}" onclick="selectSubSector('${sub}')">${label}</button>`;
-      }).join("");
-    }
+  function renderMacro() {
+    const { updated_at, universe_count, macro, stocks } = dashboardData;
+    document.getElementById("poolCount").textContent = `股票池：${universe_count} 隻`;
+    document.getElementById("updateTime").textContent = `更新時間：${updated_at}`;
 
-    function selectSubSector(sub) {
-      currentSubSector = sub;
-      renderSubSectors();
-      renderTable();
-    }
+    document.getElementById("hsiPrice").textContent = macro.hsi_price;
+    document.getElementById("hsiStage").textContent = macro.hsi_stage;
+    document.getElementById("hsiAdvice").textContent = macro.hsi_advice;
 
-    function toggleExpandAll() {
-      showAllRows = !showAllRows;
-      renderTable();
-    }
+    document.getElementById("hstechPrice").textContent = macro.hstech_price;
+    document.getElementById("hstechRsStatus").textContent = macro.hstech_rs;
+    document.getElementById("hstechAdvice").textContent = macro.hstech_advice;
 
-    function renderTable() {
-      const query = document.getElementById("searchInput").value.trim().toUpperCase();
-      const tbody = document.getElementById("stockTableBody");
+    const total = stocks.length || 1;
+    const bullCount = stocks.filter(s => s.tags.includes("stage2") || s.tags.includes("stage2a")).length;
+    const bearCount = stocks.filter(s => s.tags.includes("stage4")).length;
+    const bullPct = Math.round((bullCount / total) * 100);
+    const bearPct = Math.round((bearCount / total) * 100);
 
-      const filtered = appData.stocks.filter(item => {
-        if (currentSubSector !== "ALL" && item.sub_sector !== currentSubSector) return false;
-        if (query) {
-          const matchTicker = item.ticker.toUpperCase().includes(query);
-          const matchName = item.name && item.name.toUpperCase().includes(query);
-          if (!matchTicker && !matchName) return false;
-        }
+    document.getElementById("breadthSummary").innerHTML =
+      `<span class="text-up">多頭 ${bullPct}%</span> · <span class="text-down">空頭 ${bearPct}%</span>`;
+    document.getElementById("breadthRatioText").textContent = `多頭 ${bullCount} 隻 / 空頭 ${bearCount} 隻`;
+    document.getElementById("bullBar").style.width = `${bullPct}%`;
+    document.getElementById("bearBar").style.width = `${bearPct}%`;
+  }
 
-        if (currentFilter === "BUY2A") return ["buy_2a", "watch"].includes(item.signal_type);
-        if (currentFilter === "HOLD2") return ["buy_2a", "watch", "hold_2"].includes(item.signal_type);
-        if (currentFilter === "GAP") return item.unfilled_gap !== null;
-        if (currentFilter === "NORTHBOUND") return item.southbound_flow && item.southbound_flow.includes("增持");
-        if (currentFilter === "EXIT") return ["exit_50", "trim_2b"].includes(item.signal_type);
-        if (currentFilter === "SHORT") return ["short_4a", "avoid_4"].includes(item.signal_type);
-        return true;
-      });
-
-      const displayed = (showAllRows || query || currentFilter !== "ALL")
-        ? filtered
-        : filtered.slice(0, DEFAULT_ROW_LIMIT);
-
-      const expandBtn = document.getElementById("toggleExpandBtn");
-      if (filtered.length > DEFAULT_ROW_LIMIT && !query && currentFilter === "ALL") {
-        expandBtn.style.display = "inline-block";
-        expandBtn.textContent = showAllRows ? `收合至前 ${DEFAULT_ROW_LIMIT} 筆焦點` : `展開全部 ${filtered.length} 隻港股通標的`;
-      } else {
-        expandBtn.style.display = "none";
+  function renderTable() {
+    const tbody = document.getElementById("stockTableBody");
+    const filtered = dashboardData.stocks.filter(s => {
+      if (currentTab !== "all" && !s.tags.includes(currentTab)) return false;
+      if (filterResonance && !s.is_golden_resonance) return false;
+      if (filterGoldenEntry && !s.is_golden_entry) return false;
+      if (filterFakeBreakout && s.is_fake_risk) return false;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const hay = `${s.symbol} ${s.name} ${s.sector}`.toLowerCase();
+        if (!hay.includes(q)) return false;
       }
-
-      document.getElementById("rowCountInfo").textContent = `顯示 ${displayed.length} / 共 ${filtered.length} 隻符合條件的港股通標的`;
-
-      tbody.innerHTML = displayed.map(s => {
-        const flowText = s.southbound_flow || "港股通合資格";
-        const flowClass = flowText.includes("增持") ? "up" : (flowText.includes("減持") ? "down" : "ticker-sub");
-        return `
-          <tr>
-            <td>
-              <div>
-                <b>${s.ticker}</b> <span class="ticker-sub">${s.name || ''}</span>
-                <span class="ggt-tag">港股通</span>
-              </div>
-              <div style="font-size:0.75rem" class="${s.change_pct >= 0 ? 'up' : 'down'}">
-                ${s.change_pct >= 0 ? '+' : ''}${s.change_pct}%
-              </div>
-            </td>
-            <td>
-              <div><b>${s.sub_sector || '-'}</b></div>
-              <div class="${flowClass}" style="font-size:0.76rem">${flowText}</div>
-            </td>
-            <td><b>${s.close > 0 ? 'HK$' + s.close.toFixed(2) : '-'}</b></td>
-            <td><span class="stage-badge type-${s.signal_type}">${s.stage}</span></td>
-            <td class="${s.dist_50 >= 0 ? 'up' : 'down'}">${s.sma200 > 0 ? (s.dist_50 >= 0 ? '+' : '') + s.dist_50 + '%' : '-'}</td>
-            <td class="${s.dist_200 >= 0 ? 'up' : 'down'}">${s.sma200 > 0 ? (s.dist_200 >= 0 ? '+' : '') + s.dist_200 + '%' : '-'}</td>
-            <td class="${s.vol_ratio >= 1.5 ? 'up' : ''}">${s.sma200 > 0 ? s.vol_ratio.toFixed(2) + 'x' : '-'}</td>
-            <td>${s.unfilled_gap ? `<span class="up">HK$${s.unfilled_gap.toFixed(2)}</span>` : '<span style="color:var(--text-secondary)">-</span>'}</td>
-            <td class="note-cell">${s.action_note}</td>
-          </tr>
-        `;
-      }).join("");
-    }
-
-    function renderChecklist() {
-      const saved = JSON.parse(localStorage.getItem("hk_weinstein_checklist") || "{}");
-      const container = document.getElementById("checklistContainer");
-      container.innerHTML = CHECKLIST_ITEMS.map((text, idx) => {
-        const checked = !!saved[idx];
-        return `
-          <label class="checklist-item ${checked ? 'done' : ''}">
-            <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleCheck(${idx}, this.checked)" />
-            <span>${text}</span>
-          </label>
-        `;
-      }).join("");
-    }
-
-    function toggleCheck(idx, checked) {
-      const saved = JSON.parse(localStorage.getItem("hk_weinstein_checklist") || "{}");
-      saved[idx] = checked;
-      localStorage.setItem("hk_weinstein_checklist", JSON.stringify(saved));
-      renderChecklist();
-    }
-
-    function resetChecklist() {
-      localStorage.removeItem("hk_weinstein_checklist");
-      renderChecklist();
-    }
-
-    document.querySelectorAll(".filter-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        currentFilter = btn.dataset.filter;
-        renderTable();
-      });
+      return true;
     });
 
-    document.getElementById("searchInput").addEventListener("input", renderTable);
-    init();
-  </script>
+    if (filtered.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:24px;color:#94a3b8;">目前篩選條件下無符合標的，請嘗試放寬過濾開關。</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = filtered.map(s => {
+      const pctClass = s.pct_change >= 0 ? "text-up" : "text-down";
+      const pctSign = s.pct_change >= 0 ? "+" : "";
+
+      const resBadgeClass =
+        s.resonance_tier === "黃金共振" ? "badge-up" :
+        s.resonance_tier === "早期先鋒" ? "badge-info" :
+        s.resonance_tier === "補漲落後" ? "badge-warn" : "badge-down";
+
+      const bias50Class = s.bias_50d >= 0 ? "text-up" : "text-down";
+      const bias50Tag =
+        (s.bias_50d >= 2 && s.bias_50d <= 8) ? `<div class="text-up" style="font-size:0.74rem;">黃金起漲區</div>` :
+        (s.bias_50d > 18) ? `<div class="text-warn" style="font-size:0.74rem;">極端乖離警戒</div>` :
+        (s.bias_50d > 12) ? `<div class="text-warn" style="font-size:0.74rem;">短線超買勿追</div>` : "";
+
+      const volTag =
+        (s.vol_ratio >= 1.5 && s.vol_ratio <= 3.5) ? `<div class="text-up" style="font-size:0.74rem;">黃金放量</div>` :
+        (s.vol_ratio > 5.0) ? `<div class="text-warn" style="font-size:0.74rem;">天量警戒</div>` :
+        (s.vol_ratio < 1.2) ? `<div class="text-muted" style="font-size:0.74rem;">量能偏弱</div>` : "";
+
+      const nbBadge =
+        s.nb_status.includes("淨買入") ? `<span class="badge badge-up">${s.nb_status}</span>` :
+        s.nb_status.includes("淨流出") ? `<span class="badge badge-down">${s.nb_status}</span>` :
+        `<span class="text-muted">${s.nb_status}</span>`;
+
+      return `
+        <tr>
+          <td>
+            <div style="font-weight:700;">${s.symbol}</div>
+            <div class="text-muted">${s.name}</div>
+          </td>
+          <td>
+            <div style="margin-bottom:3px;">${s.sector}</div>
+            ${nbBadge}
+          </td>
+          <td>
+            <div style="font-weight:700;">${s.close.toFixed(2)}</div>
+            <div class="${pctClass}" style="font-size:0.78rem;">${pctSign}${s.pct_change.toFixed(2)}%</div>
+          </td>
+          <td><span style="font-weight:600;white-space:nowrap;">${s.stage}</span></td>
+          <td>
+            <span class="badge ${resBadgeClass}">${s.resonance_tier}</span>
+            <div class="text-muted" style="margin-top:3px;">${s.slope_rs_label}</div>
+          </td>
+          <td>
+            <div class="${bias50Class}">${s.bias_50d >= 0 ? "+" : ""}${s.bias_50d.toFixed(2)}%</div>
+            ${bias50Tag}
+          </td>
+          <td class="${s.bias_200d >= 0 ? "text-up" : "text-down"}">
+            ${s.bias_200d >= 0 ? "+" : ""}${s.bias_200d.toFixed(2)}%
+          </td>
+          <td>
+            <div style="font-weight:600;">${s.vol_ratio.toFixed(2)}x</div>
+            ${volTag}
+          </td>
+          <td style="white-space:nowrap;">${s.gap}</td>
+          <td class="advice-cell">${s.advice}</td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  function renderChecklist() {
+    const container = document.getElementById("checklistContainer");
+    const saved = JSON.parse(localStorage.getItem("hk_weinstein_checklist") || "{}");
+
+    container.innerHTML = CHECKLIST_ITEMS.map((text, idx) => {
+      const checked = !!saved[idx];
+      return `
+        <label class="check-item ${checked ? "done" : ""}">
+          <input type="checkbox" data-idx="${idx}" ${checked ? "checked" : ""} />
+          <span>${text}</span>
+        </label>
+      `;
+    }).join("");
+
+    container.querySelectorAll("input[type='checkbox']").forEach(cb => {
+      cb.addEventListener("change", (e) => {
+        const idx = e.target.dataset.idx;
+        saved[idx] = e.target.checked;
+        localStorage.setItem("hk_weinstein_checklist", JSON.stringify(saved));
+        e.target.closest(".check-item").classList.toggle("done", e.target.checked);
+      });
+    });
+  }
+
+  // 綁定互動事件
+  document.getElementById("tabContainer").addEventListener("click", (e) => {
+    if (!e.target.classList.contains("tab-btn")) return;
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    e.target.classList.add("active");
+    currentTab = e.target.dataset.filter;
+    renderTable();
+  });
+
+  document.getElementById("toggleResonance").addEventListener("click", function () {
+    filterResonance = !filterResonance;
+    this.classList.toggle("checked", filterResonance);
+    renderTable();
+  });
+
+  document.getElementById("toggleGoldenEntry").addEventListener("click", function () {
+    filterGoldenEntry = !filterGoldenEntry;
+    this.classList.toggle("checked", filterGoldenEntry);
+    renderTable();
+  });
+
+  document.getElementById("toggleFilterFake").addEventListener("click", function () {
+    filterFakeBreakout = !filterFakeBreakout;
+    this.classList.toggle("checked", filterFakeBreakout);
+    renderTable();
+  });
+
+  document.getElementById("searchInput").addEventListener("input", (e) => {
+    searchQuery = e.target.value.trim();
+    renderTable();
+  });
+
+  document.getElementById("resetChecklistBtn").addEventListener("click", () => {
+    localStorage.removeItem("hk_weinstein_checklist");
+    renderChecklist();
+  });
+
+  initDashboard();
+</script>
 </body>
 </html>
