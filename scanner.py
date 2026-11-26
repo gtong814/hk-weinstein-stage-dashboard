@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone, timedelta
 import numpy as np
@@ -20,45 +21,35 @@ SECTOR_ETFS = {
     "3033.HK": "南方恒生科技 ETF (3033.HK)",
 }
 
-# 是否自動同步全市場港股通名單（若海外 IP 連線超時，會自動使用下方核心港股通股池）
-AUTO_FETCH_ALL_GGT = True
-
-# 3. 港股通多賽道核心觀察池（同時作為細分賽道標籤庫與保底名單）
+# 3. 港股通多賽道核心觀察池（作為細分賽道標籤庫與保底名單）
 CORE_GGT_POOL = {
-    # 互聯網與 AI
     "0700.HK": {"name": "騰訊控股", "sector": "3033.HK", "sub_sector": "互聯網與 AI"},
     "9988.HK": {"name": "阿里巴巴-W", "sector": "3033.HK", "sub_sector": "互聯網與 AI"},
     "3690.HK": {"name": "美團-W", "sector": "3033.HK", "sub_sector": "互聯網與 AI"},
     "9618.HK": {"name": "京東集團-SW", "sector": "3033.HK", "sub_sector": "互聯網與 AI"},
     "1024.HK": {"name": "快手-W", "sector": "3033.HK", "sub_sector": "互聯網與 AI"},
     "9888.HK": {"name": "百度集團-SW", "sector": "3033.HK", "sub_sector": "互聯網與 AI"},
-    # 智能生態與人形機器人
     "1810.HK": {"name": "小米集團-W", "sector": "3033.HK", "sub_sector": "智能生態與機器人"},
     "9880.HK": {"name": "優必選", "sector": "3033.HK", "sub_sector": "智能生態與機器人"},
     "1211.HK": {"name": "比亞迪股份", "sector": "3033.HK", "sub_sector": "智能生態與機器人"},
     "2015.HK": {"name": "理想汽車-W", "sector": "3033.HK", "sub_sector": "智能生態與機器人"},
     "9868.HK": {"name": "小鵬汽車-W", "sector": "3033.HK", "sub_sector": "智能生態與機器人"},
-    # 智駕與車規晶片
     "9660.HK": {"name": "地平線機器人-W", "sector": "3033.HK", "sub_sector": "智駕與車規晶片"},
     "2533.HK": {"name": "黑芝麻智能", "sector": "3033.HK", "sub_sector": "智駕與車規晶片"},
     "2276.HK": {"name": "康耐特光學", "sector": "3033.HK", "sub_sector": "智駕與車規晶片"},
-    # 半導體製造與設備
     "0981.HK": {"name": "中芯國際", "sector": "3033.HK", "sub_sector": "半導體製造"},
     "1347.HK": {"name": "華虹半導體", "sector": "3033.HK", "sub_sector": "半導體製造"},
     "0522.HK": {"name": "ASMPT", "sector": "3033.HK", "sub_sector": "半導體製造"},
-    # AI 大模型與算力基建
     "0020.HK": {"name": "商湯-W", "sector": "3033.HK", "sub_sector": "AI 大模型與算力"},
     "9698.HK": {"name": "萬國數據-SW", "sector": "3033.HK", "sub_sector": "AI 大模型與算力"},
     "1686.HK": {"name": "新意網集團", "sector": "3033.HK", "sub_sector": "AI 大模型與算力"},
     "0268.HK": {"name": "金蝶國際", "sector": "3033.HK", "sub_sector": "AI 大模型與算力"},
     "3396.HK": {"name": "聯想控股", "sector": "3033.HK", "sub_sector": "AI 大模型與算力"},
     "0992.HK": {"name": "聯想集團", "sector": "3033.HK", "sub_sector": "AI 大模型與算力"},
-    # 醫療生技與 AI 醫療
     "1833.HK": {"name": "平安好醫生", "sector": "3033.HK", "sub_sector": "醫療生技"},
     "6160.HK": {"name": "百濟神州", "sector": "3033.HK", "sub_sector": "醫療生技"},
     "2269.HK": {"name": "藥明生物", "sector": "3033.HK", "sub_sector": "醫療生技"},
     "1801.HK": {"name": "信達生物", "sector": "3033.HK", "sub_sector": "醫療生技"},
-    # 金融、工業與高息央企
     "0388.HK": {"name": "香港交易所", "sector": "2800.HK", "sub_sector": "金融與高息"},
     "0939.HK": {"name": "建設銀行", "sector": "2800.HK", "sub_sector": "金融與高息"},
     "1658.HK": {"name": "郵儲銀行", "sector": "2800.HK", "sub_sector": "金融與高息"},
@@ -92,18 +83,52 @@ def normalize_hk_ticker(raw_code: str) -> str:
     return f"{digits}.HK"
 
 
-def build_ggt_universe() -> tuple[dict, str]:
-    """組合港股通股票池：優先自動抓取全市場港股通名單，並與核心賽道標籤合併"""
-    universe = {k: dict(v) for k, v in CORE_GGT_POOL.items()}
-    source_label = f"港股通核心觀察池 ({len(universe)} 隻)"
+def load_local_ggt_file(filepath: str = "ggt_list.txt") -> dict:
+    """從倉庫根目錄的 ggt_list.txt 讀取自訂全市場港股通名單"""
+    loaded = {}
+    if not os.path.exists(filepath):
+        return loaded
 
-    if AUTO_FETCH_ALL_GGT and ak is not None:
+    with open(filepath, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = re.split(r"[\s,\t]+", line, maxsplit=1)
+            yf_ticker = normalize_hk_ticker(parts[0])
+            if not yf_ticker or len(yf_ticker) > 8:
+                continue
+            stock_name = parts[1].strip() if len(parts) > 1 else ""
+            loaded[yf_ticker] = stock_name
+    return loaded
+
+
+def build_ggt_universe() -> tuple[dict, str]:
+    """組合港股通股票池：優先讀取 ggt_list.txt，其次嘗試線上接口，最後以核心池保底"""
+    universe = {k: dict(v) for k, v in CORE_GGT_POOL.items()}
+
+    # 1. 優先讀取倉庫內的 ggt_list.txt（最穩定，不受海外 IP 封鎖影響）
+    local_map = load_local_ggt_file("ggt_list.txt")
+    if local_map:
+        for yf_ticker, stock_name in local_map.items():
+            if yf_ticker in universe:
+                if stock_name:
+                    universe[yf_ticker]["name"] = stock_name
+            else:
+                universe[yf_ticker] = {
+                    "name": stock_name or yf_ticker,
+                    "sector": "3033.HK",
+                    "sub_sector": "港股通成份股",
+                }
+        return universe, f"全市場港股通名單 ({len(universe)} 隻)"
+
+    # 2. 若無 ggt_list.txt，嘗試透過 akshare 線上同步
+    if ak is not None:
         try:
             ggt_df = ak.stock_hk_ggt_components_em()
             if ggt_df is not None and not ggt_df.empty:
                 code_col = "代碼" if "代碼" in ggt_df.columns else ggt_df.columns[1]
                 name_col = "名稱" if "名稱" in ggt_df.columns else ggt_df.columns[2]
-                added = 0
                 for _, row in ggt_df.iterrows():
                     yf_ticker = normalize_hk_ticker(row[code_col])
                     if not yf_ticker or len(yf_ticker) > 8:
@@ -118,17 +143,14 @@ def build_ggt_universe() -> tuple[dict, str]:
                             "sector": "3033.HK",
                             "sub_sector": "港股通成份股",
                         }
-                        added += 1
-                source_label = f"全市場港股通動態名單 ({len(universe)} 隻)"
-                print(f"[GGT] 成功同步全市場港股通名單，新增 {added} 隻，總計 {len(universe)} 隻")
+                return universe, f"全市場港股通動態名單 ({len(universe)} 隻)"
         except Exception as e:
-            print(f"[GGT Warn] 無法連線取得全市場港股通列表，改用核心觀察池 ({len(universe)} 隻): {e}")
+            print(f"[GGT Warn] 線上接口超時，改用核心觀察池 ({len(universe)} 隻): {e}")
 
-    return universe, source_label
+    return universe, f"港股通核心觀察池 ({len(universe)} 隻)"
 
 
 def fetch_southbound_flows() -> dict:
-    """嘗試獲取港股通（北水）近期持股變動方向"""
     flow_map = {}
     if ak is None:
         return flow_map
@@ -146,9 +168,8 @@ def fetch_southbound_flows() -> dict:
                             flow_map[tk] = "北水增持"
                         elif val < 0:
                             flow_map[tk] = "北水減持"
-                print(f"[Northbound] 成功載入 {len(flow_map)} 隻港股通北水資金動向")
-    except Exception as e:
-        print(f"[Northbound Warn] 北水明細暫不可用，將預設標註港股通資格: {e}")
+    except Exception:
+        pass
     return flow_map
 
 
@@ -163,15 +184,15 @@ def clean_hk_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def fetch_all_histories(symbols: list[str], chunk_size: int = 25) -> dict:
-    """分批下載全部歷史日線，並對遺漏標的進行單隻重試補抓"""
+def fetch_all_histories(symbols: list[str], chunk_size: int = 50) -> dict:
+    """分批高效下載全市場歷史日線"""
     history_map = {}
     for i in range(0, len(symbols), chunk_size):
         chunk = symbols[i : i + chunk_size]
         try:
             raw = yf.download(
                 chunk,
-                period="15mo",
+                period="14mo",
                 interval="1d",
                 group_by="ticker",
                 threads=True,
@@ -187,23 +208,18 @@ def fetch_all_histories(symbols: list[str], chunk_size: int = 25) -> dict:
                     pass
         except Exception as e:
             print(f"[Batch Warn] 批次 {i // chunk_size + 1} 下載異常: {e}")
-        time.sleep(0.4)
+        time.sleep(0.25)
 
-    # 對批次下載漏掉的標的（例如偶發限流）進行單隻補抓
-    missing = [s for s in symbols if s not in history_map]
-    if missing:
-        print(f"[Retry] 單隻補抓 {len(missing)} 隻遺漏標的...")
-        for sym in missing:
-            for attempt in range(1, 3):
-                try:
-                    df_single = yf.Ticker(sym).history(period="15mo", interval="1d", auto_adjust=False)
-                    cleaned = clean_hk_df(df_single)
-                    if not cleaned.empty:
-                        history_map[sym] = cleaned
-                        break
-                except Exception:
-                    pass
-                time.sleep(0.6 * attempt)
+    # 針對核心觀察池中的遺漏標的進行單隻補抓
+    missing_core = [s for s in CORE_GGT_POOL.keys() if s in symbols and s not in history_map]
+    for sym in missing_core:
+        try:
+            df_single = yf.Ticker(sym).history(period="14mo", interval="1d", auto_adjust=False)
+            cleaned = clean_hk_df(df_single)
+            if not cleaned.empty:
+                history_map[sym] = cleaned
+        except Exception:
+            pass
 
     return history_map
 
@@ -367,7 +383,7 @@ def main():
     southbound_flows = fetch_southbound_flows()
 
     all_symbols = list(dict.fromkeys([BENCHMARK] + list(SECTOR_ETFS.keys()) + list(ggt_universe.keys())))
-    raw_histories = fetch_all_histories(all_symbols, chunk_size=25)
+    raw_histories = fetch_all_histories(all_symbols, chunk_size=50)
 
     processed = {}
     for sym, df in raw_histories.items():
@@ -379,14 +395,12 @@ def main():
     if BENCHMARK not in processed or len(processed[BENCHMARK]) < 210:
         raise RuntimeError(f"無法取得大盤基準 {BENCHMARK} 完整數據，終止掃描。")
 
-    # 1. 大盤基準評估：盈富基金 (2800.HK)
     bench_df = processed[BENCHMARK]
     bench_latest = bench_df.iloc[-1]
     bench_ret_20d = (bench_latest["Close"] / bench_df["Close"].iloc[-20]) - 1
     market_above_200 = bool(bench_latest["Close"] > bench_latest["SMA200"])
     market_above_50 = bool(bench_latest["Close"] > bench_latest["SMA50"])
 
-    # 2. 板塊相對強度評估：南方恒生科技 ETF (3033.HK)
     sectors_summary = []
     sector_strength_map = {}
     for etf, label in SECTOR_ETFS.items():
@@ -413,7 +427,6 @@ def main():
                 "is_strong": is_strong,
             })
 
-    # 3. 掃描全部港股通標的
     results = []
     for ticker, meta in ggt_universe.items():
         df_item = processed.get(ticker, pd.DataFrame())
@@ -427,10 +440,8 @@ def main():
         )
         results.append(item)
 
-    # 按訊號優先級排序（Stage 2A 突破與破 50 日線警訊置頂）
     results.sort(key=lambda x: (x["priority"], -x["vol_ratio"]))
 
-    # 4. 計算港股通市場廣度統計
     valid_stocks = [r for r in results if r["sma200"] > 0]
     total_valid = max(len(valid_stocks), 1)
     stage2a_count = sum(1 for r in valid_stocks if r["signal_type"] in ("buy_2a", "watch"))
