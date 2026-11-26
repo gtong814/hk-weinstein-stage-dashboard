@@ -21,7 +21,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install yfinance pandas numpy
+        run: pip install yfinance pandas numpy akshare
 
       - name: Run HK Stan Weinstein Stage Scanner
         run: python scanner.py
@@ -31,4 +31,4 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add data/scan_results.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update HK daily stage scan [skip ci]" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update HK GGT daily stage scan [skip ci]" && git push)
