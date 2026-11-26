@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>港股通 Stan Weinstein 四階段分析掃描儀表板</title>
+  <!-- 引入 SheetJS 用於前端直接生成標準 .xlsx 檔案 -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <style>
     :root {
       --bg: #0f172a;
@@ -12,6 +14,7 @@
       --border: #334155;
       --text: #f1f5f9;
       --text-muted: #94a3b8;
+      /* 港股習慣：綠升紅跌 */
       --up: #22c55e;
       --up-bg: rgba(34, 197, 94, 0.14);
       --down: #ef4444;
@@ -156,6 +159,13 @@
       color: var(--up);
       font-weight: 600;
     }
+
+    .right-tools {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
     .search-input {
       background: var(--bg);
       border: 1px solid var(--border);
@@ -163,9 +173,38 @@
       padding: 6px 12px;
       border-radius: 6px;
       font-size: 0.85rem;
-      min-width: 240px;
+      min-width: 220px;
     }
     .search-input:focus { outline: none; border-color: var(--accent); }
+
+    .export-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: var(--up-bg);
+      border: 1px solid var(--up);
+      color: var(--up);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.83rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .export-btn:hover {
+      background: var(--up);
+      color: #0f172a;
+    }
+    .export-btn.secondary {
+      background: var(--accent-bg);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .export-btn.secondary:hover {
+      background: var(--accent);
+      color: #0f172a;
+    }
 
     .table-wrapper {
       background: var(--surface);
@@ -319,7 +358,11 @@
         <div class="toggle-chip" id="toggleGoldenEntry">🎯 黃金起漲區（50D乖離 +2%~+8% & 量比 1.5x~3.5x）</div>
         <div class="toggle-chip" id="toggleFilterFake">🛡️ 過濾假突破（排除量比低於1.2x / 天量派發 / 北水淨流出）</div>
       </div>
-      <input type="text" class="search-input" id="searchInput" placeholder="搜尋代號（如 9660、1816）或名稱..." />
+      <div class="right-tools">
+        <input type="text" class="search-input" id="searchInput" placeholder="搜尋代號（如 9660、1816）或名稱..." />
+        <button class="export-btn" id="exportFilteredBtn" title="匯出目前畫面篩選出的股票清單">📥 匯出篩選 Excel</button>
+        <button class="export-btn secondary" id="exportAllBtn" title="匯出全部港股通掃描結果">📊 匯出全部 Excel</button>
+      </div>
     </div>
   </section>
 
@@ -411,6 +454,23 @@
     renderTable();
   }
 
+  function getFilteredStocks() {
+    if (!dashboardData || !Array.isArray(dashboardData.stocks)) return [];
+    return dashboardData.stocks.filter(s => {
+      const tags = s.tags || [];
+      if (currentTab !== "all" && !tags.includes(currentTab)) return false;
+      if (filterResonance && !s.is_golden_resonance) return false;
+      if (filterGoldenEntry && !s.is_golden_entry) return false;
+      if (filterFakeBreakout && s.is_fake_risk) return false;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const hay = `${s.symbol} ${s.name} ${s.sector || ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }
+
   function renderMacro() {
     const { updated_at, universe_count, macro, stocks } = dashboardData;
     document.getElementById("poolCount").textContent = `股票池：${universe_count || stocks.length} 隻`;
@@ -442,19 +502,7 @@
   function renderTable() {
     if (!dashboardData) return;
     const tbody = document.getElementById("stockTableBody");
-    const filtered = dashboardData.stocks.filter(s => {
-      const tags = s.tags || [];
-      if (currentTab !== "all" && !tags.includes(currentTab)) return false;
-      if (filterResonance && !s.is_golden_resonance) return false;
-      if (filterGoldenEntry && !s.is_golden_entry) return false;
-      if (filterFakeBreakout && s.is_fake_risk) return false;
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        const hay = `${s.symbol} ${s.name} ${s.sector || ""}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
+    const filtered = getFilteredStocks();
 
     if (filtered.length === 0) {
       tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:24px;color:#94a3b8;">目前篩選條件下無符合標的，請嘗試放寬過濾開關。</td></tr>`;
@@ -529,6 +577,106 @@
     }).join("");
   }
 
+  function exportToExcel(onlyFiltered = true) {
+    if (!dashboardData || !Array.isArray(dashboardData.stocks)) {
+      alert("尚未載入掃描數據，無法匯出。");
+      return;
+    }
+
+    const targetList = onlyFiltered ? getFilteredStocks() : dashboardData.stocks;
+    if (targetList.length === 0) {
+      alert("目前篩選條件下沒有符合的股票可匯出。");
+      return;
+    }
+
+    const dateTag = (dashboardData.updated_at || new Date().toISOString())
+      .slice(0, 10)
+      .replace(/[^0-9-]/g, "");
+    const modeLabel = onlyFiltered ? "篩選結果" : "全部港股通";
+    const fileName = `港股通四階段掃描_${modeLabel}_${dateTag}.xlsx`;
+
+    // 整理明細工作表（保留純數字格式，方便 Excel 直接排序與篩選）
+    const rows = targetList.map(s => ({
+      "代號": s.symbol,
+      "股票名稱": s.name,
+      "所屬賽道": s.sector || "港股通標的",
+      "北水動向(3日)": s.nb_status || "北水持平",
+      "收盤價(HK$)": Number(s.close || 0),
+      "漲跌幅(%)": Number(s.pct_change || 0),
+      "四階段判定": s.stage,
+      "共振定性": s.resonance_tier || "-",
+      "200D斜率與RS": s.slope_rs_label || "",
+      "50日線乖離(%)": Number(s.bias_50d || 0),
+      "200日線乖離(%)": Number(s.bias_200d || 0),
+      "量比(20D)": Number(s.vol_ratio || 0),
+      "未補缺口": s.gap || "無",
+      "黃金起漲區": s.is_golden_entry ? "是" : "否",
+      "假突破警戒": s.is_fake_risk ? "是" : "否",
+      "實戰操作與風控建議": s.advice || ""
+    }));
+
+    // 若 SheetJS CDN 正常載入，生成標準多工作表 .xlsx
+    if (typeof XLSX !== "undefined") {
+      const wb = XLSX.utils.book_new();
+      const wsStocks = XLSX.utils.json_to_sheet(rows);
+
+      // 設定合理欄寬
+      wsStocks["!cols"] = [
+        { wch: 11 }, // 代號
+        { wch: 16 }, // 股票名稱
+        { wch: 16 }, // 所屬賽道
+        { wch: 18 }, // 北水動向
+        { wch: 13 }, // 收盤價
+        { wch: 11 }, // 漲跌幅
+        { wch: 22 }, // 四階段判定
+        { wch: 12 }, // 共振定性
+        { wch: 28 }, // 200D斜率與RS
+        { wch: 14 }, // 50日線乖離
+        { wch: 15 }, // 200日線乖離
+        { wch: 11 }, // 量比
+        { wch: 18 }, // 未補缺口
+        { wch: 11 }, // 黃金起漲區
+        { wch: 11 }, // 假突破警戒
+        { wch: 52 }  // 實戰建議
+      ];
+      XLSX.utils.book_append_sheet(wb, wsStocks, "個股掃描明細");
+
+      // 第二個工作表：大盤與市場廣度快照
+      const m = dashboardData.macro || {};
+      const total = dashboardData.stocks.length || 1;
+      const bullCount = dashboardData.stocks.filter(s => (s.tags || []).includes("stage2") || (s.tags || []).includes("stage2a")).length;
+      const bearCount = dashboardData.stocks.filter(s => (s.tags || []).includes("stage4")).length;
+
+      const macroRows = [
+        { "指標項目": "數據更新時間", "數值 / 狀態": dashboardData.updated_at || "-", "實戰環境評估": "" },
+        { "指標項目": "匯出範圍", "數值 / 狀態": `${modeLabel}（共 ${targetList.length} 隻）`, "實戰環境評估": "" },
+        { "指標項目": "大盤基準 (2800.HK)", "數值 / 狀態": `${m.hsi_price || "-"} | ${m.hsi_stage || "-"}`, "實戰環境評估": m.hsi_advice || "" },
+        { "指標項目": "科技板塊 (3033.HK)", "數值 / 狀態": `${m.hstech_price || "-"} | ${m.hstech_rs || "-"}`, "實戰環境評估": m.hstech_advice || "" },
+        { "指標項目": "港股通市場廣度", "數值 / 狀態": `多頭 ${Math.round(bullCount / total * 100)}% (${bullCount}隻) / 空頭 ${Math.round(bearCount / total * 100)}% (${bearCount}隻)`, "實戰環境評估": "多頭佔比擴大代表升勢具廣泛資金支撐" }
+      ];
+      const wsMacro = XLSX.utils.json_to_sheet(macroRows);
+      wsMacro["!cols"] = [{ wch: 22 }, { wch: 36 }, { wch: 56 }];
+      XLSX.utils.book_append_sheet(wb, wsMacro, "大盤與市場廣度");
+
+      XLSX.writeFile(wb, fileName);
+      return;
+    }
+
+    // 備援方案：若 CDN 被阻擋，自動退回下載帶 BOM 的 UTF-8 CSV（Excel 可直接正常開啟不亂碼）
+    const headers = Object.keys(rows[0]);
+    const csvLines = [
+      headers.join(","),
+      ...rows.map(r =>
+        headers.map(h => `"${String(r[h]).replace(/"/g, '""')}"`).join(",")
+      )
+    ];
+    const blob = new Blob(["\uFEFF" + csvLines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = fileName.replace(".xlsx", ".csv");
+    link.click();
+  }
+
   function renderChecklist() {
     const container = document.getElementById("checklistContainer");
     const saved = JSON.parse(localStorage.getItem("hk_weinstein_checklist") || "{}");
@@ -583,6 +731,9 @@
     searchQuery = e.target.value.trim();
     renderTable();
   });
+
+  document.getElementById("exportFilteredBtn").addEventListener("click", () => exportToExcel(true));
+  document.getElementById("exportAllBtn").addEventListener("click", () => exportToExcel(false));
 
   document.getElementById("resetChecklistBtn").addEventListener("click", () => {
     localStorage.removeItem("hk_weinstein_checklist");
