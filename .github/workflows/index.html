@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>港股通 Stan Weinstein 四階段分析掃描儀表板</title>
+  <style>
+    :root {
+      --bg-main: #0d1117;
+      --bg-card: #161b22;
+      --bg-hover: #1f242c;
+      --border: #30363d;
+      --text-primary: #e6edf3;
+      --text-secondary: #8b949e;
+      /* 綠升紅跌配色 */
+      --up-color: #00c853;
+      --up-bg: rgba(0, 200, 83, 0.14);
+      --down-color: #ff3d00;
+      --down-bg: rgba(255, 61, 0, 0.14);
+      --warn-color: #f59e0b;
+      --warn-bg: rgba(245, 158, 11, 0.14);
+      --accent: #58a6ff;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang HK", "Microsoft JhengHei", sans-serif;
+      background-color: var(--bg-main);
+      color: var(--text-primary);
+      line-height: 1.5;
+      padding: 20px;
+    }
+
+    .container { max-width: 1400px; margin: 0 auto; }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+      gap: 12px;
+    }
+
+    h1 { font-size: 1.4rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+    .subtitle { color: var(--text-secondary); font-size: 0.85rem; margin-top: 2px; }
+    .badge-update {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+    }
+
+    /* 頂部大盤與恒生科技板塊基準區 */
+    .top-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 900px) { .top-grid { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .card-title {
+      font-size: 0.84rem;
+      color: var(--text-secondary);
+      letter-spacing: 0.03em;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .regime-value { font-size: 1.12rem; font-weight: 700; margin-bottom: 10px; }
+    .sma-pills { display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.82rem; }
+    .pill {
+      padding: 4px 10px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background: var(--bg-main);
+    }
+
+    /* 細分賽道過濾列 */
+    .subsector-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+      align-items: center;
+    }
+    .subsector-label {
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      margin-right: 4px;
+    }
+    .sub-pill {
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+      padding: 5px 12px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .sub-pill:hover, .sub-pill.active {
+      border-color: var(--accent);
+      color: var(--text-primary);
+      background: #21262d;
+      font-weight: 600;
+    }
+
+    /* 主體雙欄佈局 */
+    .main-layout {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 16px;
+      align-items: start;
+    }
+    @media (max-width: 1140px) { .main-layout { grid-template-columns: 1fr; } }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
+      align-items: center;
+    }
+    .filter-btn {
+      background: var(--bg-main);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      cursor: pointer;
+    }
+    .filter-btn.active {
+      background: #21262d;
+      color: var(--text-primary);
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+    .search-input {
+      background: var(--bg-main);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      margin-left: auto;
+      min-width: 190px;
+    }
+
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+    th, td {
+      padding: 10px 10px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    th { color: var(--text-secondary); font-weight: 600; font-size: 0.78rem; }
+    tr:hover td { background: var(--bg-hover); }
+
+    .up { color: var(--up-color); font-weight: 600; }
+    .down { color: var(--down-color); font-weight: 600; }
+    .warn { color: var(--warn-color); font-weight: 600; }
+
+    .ticker-sub { font-size: 0.78rem; color: var(--text-secondary); }
+    .stage-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 600;
+    }
+    .type-buy_2a, .type-hold_2 { background: var(--up-bg); color: var(--up-color); }
+    .type-short_4a, .type-avoid_4, .type-exit_50 { background: var(--down-bg); color: var(--down-color); }
+    .type-trim_2b, .type-watch, .type-stage_3 { background: var(--warn-bg); color: var(--warn-color); }
+    .type-neutral { background: rgba(139, 148, 158, 0.15); color: var(--text-secondary); }
+
+    .note-cell { white-space: normal; min-width: 230px; font-size: 0.8rem; color: var(--text-secondary); }
+
+    /* 右側互動檢查清單 */
+    .checklist-item {
+      display: flex;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.83rem;
+      cursor: pointer;
+    }
+    .checklist-item:last-child { border-bottom: none; }
+    .checklist-item input { margin-top: 3px; accent-color: var(--up-color); cursor: pointer; }
+    .checklist-item.done span { text-decoration: line-through; color: var(--text-secondary); }
+    .reset-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>港股通 Stan Weinstein 現代版四階段分析儀表板</h1>
+        <div class="subtitle">盈富基金 (2800.HK) 基準 · 南方恒生科技 (3033.HK) 相對強度 · 50 / 150 / 200 SMA 與缺口偵測（綠升紅跌）</div>
+      </div>
+      <div class="badge-update" id="updatedAt">載入數據中...</div>
+    </header>
+
+    <!-- 頂部：大盤基準 (2800.HK) + 板塊相對強度基準 (3033.HK) -->
+    <div class="top-grid">
+      <div class="card">
+        <div class="card-title">
+          <span>1. 大盤趨勢基準（見樹先見林）</span>
+          <span id="benchSymbol">2800.HK</span>
+        </div>
+        <div class="regime-value" id="marketRegime">-</div>
+        <div class="sma-pills" id="marketPills"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <span>2. 科技板塊相對強度基準（對比 2800.HK）</span>
+          <span id="sectorSymbol">3033.HK</span>
+        </div>
+        <div class="regime-value" id="sectorRegime">-</div>
+        <div class="sma-pills" id="sectorPills"></div>
+      </div>
+    </div>
+
+    <!-- 港股通細分賽道過濾列 -->
+    <div class="subsector-bar" id="subsectorBar"></div>
+
+    <!-- 主體：左側個股掃描表 + 右側交易紀律清單 -->
+    <div class="main-layout">
+      <div class="card">
+        <div class="controls">
+          <button class="filter-btn active" data-filter="ALL">全部標的</button>
+          <button class="filter-btn" data-filter="BUY">🚀 Stage 2A 突破 / 強勢多頭</button>
+          <button class="filter-btn" data-filter="GAP">⚡ 早期跳空未補</button>
+          <button class="filter-btn" data-filter="EXIT">⚠️ 破50日線離場 / 2B止盈</button>
+          <button class="filter-btn" data-filter="SHORT">🔻 Stage 4A 轉空 / 空頭</button>
+          <input type="text" class="search-input" id="searchInput" placeholder="搜尋代號或名稱 (如 9880 / 優必選)..." />
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>代號 / 名稱</th>
+                <th>賽道與板塊基準</th>
+                <th>收盤價 (HK$)</th>
+                <th>四階段判定</th>
+                <th>50日線乖離</th>
+                <th>200日線乖離</th>
+                <th>量比 (20D)</th>
+                <th>未補缺口</th>
+                <th>實戰操作與風控建議</th>
+              </tr>
+            </thead>
+            <tbody id="stockTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <span>港股通盤前與持倉紀律清單</span>
+          <button class="reset-btn" onclick="resetChecklist()">重置勾選</button>
+        </div>
+        <div id="checklistContainer"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const CHECKLIST_ITEMS = [
+      "確認盈富基金 (2800.HK) 未處於跌破 200 日線的 Stage 4 空頭格局",
+      "檢視南方恒生科技 (3033.HK) 相對 2800.HK 的 20 日 RS 是否維持強勢",
+      "嚴禁買入仍位於 200 日均線下方的 Stage 4 弱勢港股",
+      "Stage 2A 突破需伴隨成交量放大（20 日均量比 >= 1.5x）",
+      "執行「半倉＋半倉」：突破買 50%，縮量回測頸線守穩再加碼 50%",
+      "現代版防守線：強勢股一旦跌破 50 日均線即果斷離場觀望",
+      "絕不向下攤平（Averaging Down），只對強勢突破贏家向上加碼",
+      "Stage 2B 遠離 200 日線逾 20% 且出現後期跳空缺口時分批止盈",
+      "Stage 4A 轉空防守：反彈站回 150 日線減半，站回 50 日線全數平倉"
+    ];
+
+    // 內建港股示範數據（首次啟用 GitHub Pages 尚未運行 Actions 前自動顯示）
+    const FALLBACK_DATA = {
+      updated_at: "示範數據（執行 Actions 後自動更新最新港股盤後報價）",
+      market: {
+        symbol: "盈富基金 (2800.HK)",
+        close: 25.80,
+        sma50: 25.12,
+        sma200: 23.45,
+        above_50: true,
+        above_200: true,
+        regime: "多頭健康（站穩 50 & 200 日線）"
+      },
+      sectors: [
+        {
+          etf: "3033.HK",
+          name: "南方恒生科技 ETF (3033.HK)",
+          close: 5.42,
+          sma50: 5.18,
+          sma200: 4.76,
+          above_50: true,
+          above_200: true,
+          rs_20d: 3.15,
+          is_strong: true
+        }
+      ],
+      stocks: [
+        { ticker: "9880.HK", name: "優必選", sector_etf: "3033.HK", sector_name: "南方恒生科技 ETF (3033.HK)", sub_sector: "人形機器人", sector_strong: true, close: 112.50, change_pct: 6.8, dist_50: 9.4, dist_200: 15.2, vol_ratio: 2.25, unfilled_gap: 106.20, stage: "Stage 2A 理想突破", signal_type: "buy_2a", action_note: "油箱有老虎（量比 2.3x）：突破建倉 50%，回測 HK$106.20 缺口不補再加碼 50%" },
+        { ticker: "9660.HK", name: "地平線機器人-W", sector_etf: "3033.HK", sector_name: "南方恒生科技 ETF (3033.HK)", sub_sector: "智駕與車規晶片", sector_strong: true, close: 8.65, change_pct: 4.5, dist_50: 6.1, dist_200: 11.4, vol_ratio: 1.88, unfilled_gap: null, stage: "Stage 2A 理想突破", signal_type: "buy_2a", action_note: "放量突破 60 日箱體頸線與 200 日線，執行半倉＋半倉分批布局" },
+        { ticker: "0981.HK", name: "中芯國際", sector_etf: "3033.HK", sector_name: "南方恒生科技 ETF (3033.HK)", sub_sector: "半導體製造", sector_strong: true, close: 46.80, change_pct: 2.4, dist_50: 8.5, dist_200: 22.8, vol_ratio: 1.32, unfilled_gap: 44.50, stage: "Stage 2B 延伸末段", signal_type: "trim_2b", action_note: "遠離 200 日線 (+22.8%)，短線乖離偏大宜分批止盈減碼" },
+        { ticker: "0700.HK", name: "騰訊控股", sector_etf: "3033.HK", sector_name: "南方恒生科技 ETF (3033.HK)", sub_sector: "互聯網與 AI", sector_strong: true, close: 492.00, change_pct: 1.2, dist_50: 4.8, dist_200: 14.6, vol_ratio: 1.10, unfilled_gap: null, stage: "Stage 2 上升趨勢", signal_type: "hold_2", action_note: "穩守 50 日線 (HK$469.50) 上方，續抱並以 50 日線作為移動防守線" },
+        { ticker: "1810.HK", name: "小米集團-W", sector_etf: "3033.HK", sector_name: "南方恒生科技 ETF (3033.HK)", sub_sector: "智能生態與電動車", sector_strong: true, close: 34.20, change_pct: -2.1, dist_50: -1.8, dist_200: 16.5, vol_ratio: 1.45, unfilled_gap: null, stage: "Stage 2 轉弱（破 50 日線）", signal_type: "exit_50", action_note: "現代版防守警訊：跌破 50 日線 (HK$34.83)，宜果斷離場觀望" },
+        { ticker: "0020.HK", name: "商湯-W", sector_etf: "3033.HK", sector_name: "南方恒生科技 ETF (3033.HK)", sub_sector: "AI 大模型與算力", sector_strong: true, close: 1.48, change_pct: -3.3, dist_50: -8.6, dist_200: -12.4, vol_ratio: 1.15, unfilled_gap: null, stage: "Stage 4 下跌趨勢", signal_type: "avoid_4", action_note: "處於第四階段空頭格局，切忌逆勢抄底或向下攤平" }
+      ]
+    };
+
+    let appData = FALLBACK_DATA;
+    let currentFilter = "ALL";
+    let currentSubSector = "ALL";
+
+    async function init() {
+      try {
+        const res = await fetch("./data/scan_results.json?t=" + Date.now());
+        if (res.ok) appData = await res.json();
+      } catch (e) {
+        console.warn("Using fallback HK sample data until scan_results.json is generated.");
+      }
+      renderBenchmarks();
+      renderSubSectors();
+      renderTable();
+      renderChecklist();
+    }
+
+    function renderBenchmarks() {
+      document.getElementById("updatedAt").textContent = "最後更新：" + appData.updated_at;
+
+      // 1. 盈富基金 (2800.HK)
+      const m = appData.market;
+      const regimeEl = document.getElementById("marketRegime");
+      regimeEl.textContent = `HK$${m.close.toFixed(2)} · ${m.regime}`;
+      regimeEl.className = "regime-value " + (m.above_200 ? (m.above_50 ? "up" : "warn") : "down");
+
+      document.getElementById("marketPills").innerHTML = `
+        <span class="pill">50 SMA: <b class="${m.above_50 ? 'up' : 'down'}">HK$${m.sma50.toFixed(2)}</b></span>
+        <span class="pill">200 SMA: <b class="${m.above_200 ? 'up' : 'down'}">HK$${m.sma200.toFixed(2)}</b></span>
+      `;
+
+      // 2. 南方恒生科技 ETF (3033.HK)
+      const sec = appData.sectors && appData.sectors[0];
+      if (sec) {
+        const secRegimeEl = document.getElementById("sectorRegime");
+        const rsSign = sec.rs_20d >= 0 ? "+" : "";
+        secRegimeEl.textContent = `HK$${sec.close.toFixed(2)} · 20日相對強度 (RS): ${rsSign}${sec.rs_20d}%`;
+        secRegimeEl.className = "regime-value " + (sec.is_strong ? "up" : (sec.above_200 ? "warn" : "down"));
+
+        document.getElementById("sectorPills").innerHTML = `
+          <span class="pill">板塊狀態: <b class="${sec.is_strong ? 'up' : 'warn'}">${sec.is_strong ? '★ 強勢領漲' : '震盪/偏弱'}</b></span>
+          <span class="pill">50 SMA: <b class="${sec.above_50 ? 'up' : 'down'}">${sec.sma50 ? 'HK$' + sec.sma50.toFixed(2) : (sec.above_50 ? '上方' : '跌破')}</b></span>
+          <span class="pill">200 SMA: <b class="${sec.above_200 ? 'up' : 'down'}">${sec.sma200 ? 'HK$' + sec.sma200.toFixed(2) : (sec.above_200 ? '上方' : '跌破')}</b></span>
+        `;
+      }
+    }
+
+    function renderSubSectors() {
+      const subSectors = ["ALL", ...new Set(appData.stocks.map(s => s.sub_sector).filter(Boolean))];
+      const bar = document.getElementById("subsectorBar");
+      bar.innerHTML = `<span class="subsector-label">細分賽道：</span>` + subSectors.map(sub => {
+        const label = sub === "ALL" ? "全部賽道" : sub;
+        return `<button class="sub-pill ${currentSubSector === sub ? 'active' : ''}" onclick="selectSubSector('${sub}')">${label}</button>`;
+      }).join("");
+    }
+
+    function selectSubSector(sub) {
+      currentSubSector = sub;
+      renderSubSectors();
+      renderTable();
+    }
+
+    function renderTable() {
+      const query = document.getElementById("searchInput").value.trim().toUpperCase();
+      const tbody = document.getElementById("stockTableBody");
+
+      const filtered = appData.stocks.filter(item => {
+        if (currentSubSector !== "ALL" && item.sub_sector !== currentSubSector) return false;
+        if (query) {
+          const matchTicker = item.ticker.toUpperCase().includes(query);
+          const matchName = item.name && item.name.toUpperCase().includes(query);
+          if (!matchTicker && !matchName) return false;
+        }
+
+        if (currentFilter === "BUY") return ["buy_2a", "hold_2"].includes(item.signal_type);
+        if (currentFilter === "GAP") return item.unfilled_gap !== null;
+        if (currentFilter === "EXIT") return ["exit_50", "trim_2b"].includes(item.signal_type);
+        if (currentFilter === "SHORT") return ["short_4a", "avoid_4"].includes(item.signal_type);
+        return true;
+      });
+
+      tbody.innerHTML = filtered.map(s => `
+        <tr>
+          <td>
+            <div><b>${s.ticker}</b> <span class="ticker-sub">${s.name || ''}</span></div>
+            <div style="font-size:0.76rem" class="${s.change_pct >= 0 ? 'up' : 'down'}">
+              ${s.change_pct >= 0 ? '+' : ''}${s.change_pct}%
+            </div>
+          </td>
+          <td>
+            <div><b>${s.sub_sector || '-'}</b></div>
+            <div class="ticker-sub">
+              ${s.sector_etf} ${s.sector_strong ? '<span class="up">★板塊強勢</span>' : ''}
+            </div>
+          </td>
+          <td><b>HK$${s.close.toFixed(2)}</b></td>
+          <td><span class="stage-badge type-${s.signal_type}">${s.stage}</span></td>
+          <td class="${s.dist_50 >= 0 ? 'up' : 'down'}">${s.dist_50 >= 0 ? '+' : ''}${s.dist_50}%</td>
+          <td class="${s.dist_200 >= 0 ? 'up' : 'down'}">${s.dist_200 >= 0 ? '+' : ''}${s.dist_200}%</td>
+          <td class="${s.vol_ratio >= 1.5 ? 'up' : ''}">${s.vol_ratio.toFixed(2)}x</td>
+          <td>${s.unfilled_gap ? `<span class="up">HK$${s.unfilled_gap.toFixed(2)}</span>` : '<span style="color:var(--text-secondary)">-</span>'}</td>
+          <td class="note-cell">${s.action_note}</td>
+        </tr>
+      `).join("");
+    }
+
+    function renderChecklist() {
+      const saved = JSON.parse(localStorage.getItem("hk_weinstein_checklist") || "{}");
+      const container = document.getElementById("checklistContainer");
+      container.innerHTML = CHECKLIST_ITEMS.map((text, idx) => {
+        const checked = !!saved[idx];
+        return `
+          <label class="checklist-item ${checked ? 'done' : ''}">
+            <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleCheck(${idx}, this.checked)" />
+            <span>${text}</span>
+          </label>
+        `;
+      }).join("");
+    }
+
+    function toggleCheck(idx, checked) {
+      const saved = JSON.parse(localStorage.getItem("hk_weinstein_checklist") || "{}");
+      saved[idx] = checked;
+      localStorage.setItem("hk_weinstein_checklist", JSON.stringify(saved));
+      renderChecklist();
+    }
+
+    function resetChecklist() {
+      localStorage.removeItem("hk_weinstein_checklist");
+      renderChecklist();
+    }
+
+    document.querySelectorAll(".filter-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        currentFilter = btn.dataset.filter;
+        renderTable();
+      });
+    });
+
+    document.getElementById("searchInput").addEventListener("input", renderTable);
+    init();
+  </script>
+</body>
+</html>
