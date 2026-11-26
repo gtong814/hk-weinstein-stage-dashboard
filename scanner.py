@@ -1,16 +1,13 @@
+import html
 import json
 import os
 import re
 import time
+import urllib.request
 from datetime import datetime, timezone, timedelta
 import numpy as np
 import pandas as pd
 import yfinance as yf
-
-try:
-    import akshare as ak
-except ImportError:
-    ak = None
 
 # 1. 大盤趨勢基準：盈富基金
 BENCHMARK = "2800.HK"
@@ -21,7 +18,7 @@ SECTOR_ETFS = {
     "3033.HK": "南方恒生科技 ETF (3033.HK)",
 }
 
-# 3. 港股通多賽道核心觀察池（作為細分賽道標籤庫與保底名單）
+# 3. 港股通重點賽道標籤庫（為重點科技/AI/機器人/半導體標的標註細分賽道，同時作為保底名單）
 CORE_GGT_POOL = {
     "0700.HK": {"name": "騰訊控股", "sector": "3033.HK", "sub_sector": "互聯網與 AI"},
     "9988.HK": {"name": "阿里巴巴-W", "sector": "3033.HK", "sub_sector": "互聯網與 AI"},
@@ -83,8 +80,73 @@ def normalize_hk_ticker(raw_code: str) -> str:
     return f"{digits}.HK"
 
 
+def fetch_hkex_southbound_list() -> tuple[dict, dict]:
+    """從港交所披露易（HKEXnews）抓取最新全市場港股通（南向）成份股名單與北水持股比例"""
+    urls = [
+        "https://www3.hkexnews.hk/sdw/search/mutualmarket_c.aspx?t=hk",
+        "https://www3.hkexnews.hk/sdw/search/mutualmarket.aspx?t=hk",
+    ]
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "zh-HK,zh-TW;q=0.9,en;q=0.8",
+    }
+
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                raw_html = resp.read().decode("utf-8", errors="ignore")
+
+            rows = re.findall(r"<tr[^>]*>(.*?)</tr>", raw_html, flags=re.S)
+            stock_map = {}
+            holding_map = {}
+
+            for row_html in rows:
+                code_m = re.search(
+                    r'class="col-stock-code"[^>]*>.*?class="mobile-list-body"[^>]*>(.*?)</div>',
+                    row_html,
+                    flags=re.S,
+                )
+                name_m = re.search(
+                    r'class="col-stock-name"[^>]*>.*?class="mobile-list-body"[^>]*>(.*?)</div>',
+                    row_html,
+                    flags=re.S,
+                )
+                pct_m = re.search(
+                    r'class="col-shareholding-percent"[^>]*>.*?class="mobile-list-body"[^>]*>(.*?)</div>',
+                    row_html,
+                    flags=re.S,
+                )
+                if not code_m:
+                    continue
+
+                raw_code = re.sub(r"<[^>]+>", "", code_m.group(1)).strip()
+                yf_ticker = normalize_hk_ticker(raw_code)
+                if not yf_ticker or len(yf_ticker) > 8:
+                    continue
+
+                raw_name = re.sub(r"<[^>]+>", "", name_m.group(1)).strip() if name_m else ""
+                clean_name = html.unescape(raw_name).strip()
+                stock_map[yf_ticker] = clean_name
+
+                if pct_m:
+                    raw_pct = re.sub(r"<[^>]+>", "", pct_m.group(1)).strip()
+                    if raw_pct:
+                        holding_map[yf_ticker] = f"北水持股 {raw_pct}"
+
+            if len(stock_map) >= 300:
+                print(f"[HKEX] 成功從港交所同步 {len(stock_map)} 隻港股通合資格股份")
+                return stock_map, holding_map
+        except Exception as e:
+            print(f"[HKEX Warn] 嘗試讀取 {url} 失敗: {e}")
+
+    return {}, {}
+
+
 def load_local_ggt_file(filepath: str = "ggt_list.txt") -> dict:
-    """從倉庫根目錄的 ggt_list.txt 讀取自訂全市場港股通名單"""
     loaded = {}
     if not os.path.exists(filepath):
         return loaded
@@ -103,16 +165,31 @@ def load_local_ggt_file(filepath: str = "ggt_list.txt") -> dict:
     return loaded
 
 
-def build_ggt_universe() -> tuple[dict, str]:
-    """組合港股通股票池：優先讀取 ggt_list.txt，其次嘗試線上接口，最後以核心池保底"""
+def build_ggt_universe() -> tuple[dict, str, dict]:
+    """組合港股通股票池：優先自動同步港交所 550+ 隻名單，亦支援完整 ggt_list.txt 覆蓋"""
     universe = {k: dict(v) for k, v in CORE_GGT_POOL.items()}
+    hkex_stocks, holding_map = fetch_hkex_southbound_list()
 
-    # 1. 優先讀取倉庫內的 ggt_list.txt（最穩定，不受海外 IP 封鎖影響）
+    # 若手動建立的 ggt_list.txt 超過 50 隻，視為使用者自訂完整名單
     local_map = load_local_ggt_file("ggt_list.txt")
-    if local_map:
+    if len(local_map) >= 50:
         for yf_ticker, stock_name in local_map.items():
             if yf_ticker in universe:
                 if stock_name:
+                    universe[yf_ticker]["name"] = stock_name
+            else:
+                universe[yf_ticker] = {
+                    "name": stock_name or hkex_stocks.get(yf_ticker, yf_ticker),
+                    "sector": "3033.HK",
+                    "sub_sector": "港股通成份股",
+                }
+        return universe, f"自訂港股通名單 ({len(universe)} 隻)", holding_map
+
+    # 預設使用港交所官方全市場港股通名單（約 550+ 隻）
+    if hkex_stocks:
+        for yf_ticker, stock_name in hkex_stocks.items():
+            if yf_ticker in universe:
+                if stock_name and universe[yf_ticker]["name"] == yf_ticker:
                     universe[yf_ticker]["name"] = stock_name
             else:
                 universe[yf_ticker] = {
@@ -120,57 +197,17 @@ def build_ggt_universe() -> tuple[dict, str]:
                     "sector": "3033.HK",
                     "sub_sector": "港股通成份股",
                 }
-        return universe, f"全市場港股通名單 ({len(universe)} 隻)"
+        # 併入本地少量額外自選股（如有）
+        for yf_ticker, stock_name in local_map.items():
+            if yf_ticker not in universe:
+                universe[yf_ticker] = {
+                    "name": stock_name or yf_ticker,
+                    "sector": "3033.HK",
+                    "sub_sector": "港股通成份股",
+                }
+        return universe, f"港交所全市場港股通 ({len(universe)} 隻)", holding_map
 
-    # 2. 若無 ggt_list.txt，嘗試透過 akshare 線上同步
-    if ak is not None:
-        try:
-            ggt_df = ak.stock_hk_ggt_components_em()
-            if ggt_df is not None and not ggt_df.empty:
-                code_col = "代碼" if "代碼" in ggt_df.columns else ggt_df.columns[1]
-                name_col = "名稱" if "名稱" in ggt_df.columns else ggt_df.columns[2]
-                for _, row in ggt_df.iterrows():
-                    yf_ticker = normalize_hk_ticker(row[code_col])
-                    if not yf_ticker or len(yf_ticker) > 8:
-                        continue
-                    stock_name = str(row[name_col]).strip()
-                    if yf_ticker in universe:
-                        if stock_name:
-                            universe[yf_ticker]["name"] = stock_name
-                    else:
-                        universe[yf_ticker] = {
-                            "name": stock_name or yf_ticker,
-                            "sector": "3033.HK",
-                            "sub_sector": "港股通成份股",
-                        }
-                return universe, f"全市場港股通動態名單 ({len(universe)} 隻)"
-        except Exception as e:
-            print(f"[GGT Warn] 線上接口超時，改用核心觀察池 ({len(universe)} 隻): {e}")
-
-    return universe, f"港股通核心觀察池 ({len(universe)} 隻)"
-
-
-def fetch_southbound_flows() -> dict:
-    flow_map = {}
-    if ak is None:
-        return flow_map
-    try:
-        stats_df = ak.stock_hsgt_stock_statistics_em(symbol="南向持股")
-        if stats_df is not None and not stats_df.empty:
-            code_col = "代碼" if "代碼" in stats_df.columns else None
-            chg_col = next((c for c in stats_df.columns if "持股市值變化" in c or "持股數量變化" in c), None)
-            if code_col and chg_col:
-                for _, row in stats_df.iterrows():
-                    tk = normalize_hk_ticker(row[code_col])
-                    val = pd.to_numeric(row[chg_col], errors="coerce")
-                    if tk and pd.notna(val):
-                        if val > 0:
-                            flow_map[tk] = "北水增持"
-                        elif val < 0:
-                            flow_map[tk] = "北水減持"
-    except Exception:
-        pass
-    return flow_map
+    return universe, f"港股通核心觀察池 ({len(universe)} 隻)", holding_map
 
 
 def clean_hk_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -184,8 +221,8 @@ def clean_hk_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def fetch_all_histories(symbols: list[str], chunk_size: int = 50) -> dict:
-    """分批高效下載全市場歷史日線"""
+def fetch_all_histories(symbols: list[str], chunk_size: int = 60) -> dict:
+    """分批高效下載全市場 550+ 隻歷史日線"""
     history_map = {}
     for i in range(0, len(symbols), chunk_size):
         chunk = symbols[i : i + chunk_size]
@@ -210,7 +247,7 @@ def fetch_all_histories(symbols: list[str], chunk_size: int = 50) -> dict:
             print(f"[Batch Warn] 批次 {i // chunk_size + 1} 下載異常: {e}")
         time.sleep(0.25)
 
-    # 針對核心觀察池中的遺漏標的進行單隻補抓
+    # 針對核心重點池中的遺漏標的進行單隻補抓
     missing_core = [s for s in CORE_GGT_POOL.keys() if s in symbols and s not in history_map]
     for sym in missing_core:
         try:
@@ -269,7 +306,7 @@ def classify_stock(
             "base_high": 0.0,
             "base_low": 0.0,
             "unfilled_gap": None,
-            "stage": "上市未滿200日 / 數據不足",
+            "stage": "上市未滿200日 / 暫無報價",
             "signal_type": "neutral",
             "priority": SIGNAL_PRIORITY["neutral"],
             "action_note": f"有效交易日 {len(df)} 日，暫未形成 200 日均線基準",
@@ -379,11 +416,10 @@ def classify_stock(
 
 
 def main():
-    ggt_universe, universe_source = build_ggt_universe()
-    southbound_flows = fetch_southbound_flows()
+    ggt_universe, universe_source, holding_map = build_ggt_universe()
 
     all_symbols = list(dict.fromkeys([BENCHMARK] + list(SECTOR_ETFS.keys()) + list(ggt_universe.keys())))
-    raw_histories = fetch_all_histories(all_symbols, chunk_size=50)
+    raw_histories = fetch_all_histories(all_symbols, chunk_size=60)
 
     processed = {}
     for sym, df in raw_histories.items():
@@ -430,7 +466,7 @@ def main():
     results = []
     for ticker, meta in ggt_universe.items():
         df_item = processed.get(ticker, pd.DataFrame())
-        sb_status = southbound_flows.get(ticker, "港股通合資格")
+        sb_status = holding_map.get(ticker, "港股通合資格")
         item = classify_stock(
             ticker,
             meta,
