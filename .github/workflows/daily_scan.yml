@@ -1,0 +1,34 @@
+name: HK Daily Weinstein Stage Scan
+
+on:
+  schedule:
+    - cron: '30 8 * * 1-5' # 週一至週五港股收盤後執行 (UTC 08:30 = HKT 16:30)
+  workflow_dispatch:         # 支援在 GitHub Actions 頁面手動一鍵觸發
+
+permissions:
+  contents: write
+
+jobs:
+  scan-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install yfinance pandas numpy
+
+      - name: Run HK Stan Weinstein Stage Scanner
+        run: python scanner.py
+
+      - name: Commit and push updated scan_results.json
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add data/scan_results.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update HK daily stage scan [skip ci]" && git push)
