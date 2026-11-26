@@ -1,523 +1,384 @@
-import html
 import json
-import os
-import re
-import time
-import urllib.request
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
+from typing import Any, Dict, List
 import numpy as np
 import pandas as pd
-import yfinance as yf
-
-# 1. 大盤趨勢基準：盈富基金
-BENCHMARK = "2800.HK"
-BENCHMARK_NAME = "盈富基金 (2800.HK)"
-
-# 2. 板塊相對強度基準：南方恒生科技 ETF
-SECTOR_ETFS = {
-    "3033.HK": "南方恒生科技 ETF (3033.HK)",
-}
-
-# 3. 港股通重點賽道標籤庫（為重點科技/AI/機器人/半導體標的標註細分賽道，同時作為保底名單）
-CORE_GGT_POOL = {
-    "0700.HK": {"name": "騰訊控股", "sector": "3033.HK", "sub_sector": "互聯網與 AI"},
-    "9988.HK": {"name": "阿里巴巴-W", "sector": "3033.HK", "sub_sector": "互聯網與 AI"},
-    "3690.HK": {"name": "美團-W", "sector": "3033.HK", "sub_sector": "互聯網與 AI"},
-    "9618.HK": {"name": "京東集團-SW", "sector": "3033.HK", "sub_sector": "互聯網與 AI"},
-    "1024.HK": {"name": "快手-W", "sector": "3033.HK", "sub_sector": "互聯網與 AI"},
-    "9888.HK": {"name": "百度集團-SW", "sector": "3033.HK", "sub_sector": "互聯網與 AI"},
-    "1810.HK": {"name": "小米集團-W", "sector": "3033.HK", "sub_sector": "智能生態與機器人"},
-    "9880.HK": {"name": "優必選", "sector": "3033.HK", "sub_sector": "智能生態與機器人"},
-    "1211.HK": {"name": "比亞迪股份", "sector": "3033.HK", "sub_sector": "智能生態與機器人"},
-    "2015.HK": {"name": "理想汽車-W", "sector": "3033.HK", "sub_sector": "智能生態與機器人"},
-    "9868.HK": {"name": "小鵬汽車-W", "sector": "3033.HK", "sub_sector": "智能生態與機器人"},
-    "9660.HK": {"name": "地平線機器人-W", "sector": "3033.HK", "sub_sector": "智駕與車規晶片"},
-    "2533.HK": {"name": "黑芝麻智能", "sector": "3033.HK", "sub_sector": "智駕與車規晶片"},
-    "2276.HK": {"name": "康耐特光學", "sector": "3033.HK", "sub_sector": "智駕與車規晶片"},
-    "0981.HK": {"name": "中芯國際", "sector": "3033.HK", "sub_sector": "半導體製造"},
-    "1347.HK": {"name": "華虹半導體", "sector": "3033.HK", "sub_sector": "半導體製造"},
-    "0522.HK": {"name": "ASMPT", "sector": "3033.HK", "sub_sector": "半導體製造"},
-    "0020.HK": {"name": "商湯-W", "sector": "3033.HK", "sub_sector": "AI 大模型與算力"},
-    "9698.HK": {"name": "萬國數據-SW", "sector": "3033.HK", "sub_sector": "AI 大模型與算力"},
-    "1686.HK": {"name": "新意網集團", "sector": "3033.HK", "sub_sector": "AI 大模型與算力"},
-    "0268.HK": {"name": "金蝶國際", "sector": "3033.HK", "sub_sector": "AI 大模型與算力"},
-    "3396.HK": {"name": "聯想控股", "sector": "3033.HK", "sub_sector": "AI 大模型與算力"},
-    "0992.HK": {"name": "聯想集團", "sector": "3033.HK", "sub_sector": "AI 大模型與算力"},
-    "1833.HK": {"name": "平安好醫生", "sector": "3033.HK", "sub_sector": "醫療生技"},
-    "6160.HK": {"name": "百濟神州", "sector": "3033.HK", "sub_sector": "醫療生技"},
-    "2269.HK": {"name": "藥明生物", "sector": "3033.HK", "sub_sector": "醫療生技"},
-    "1801.HK": {"name": "信達生物", "sector": "3033.HK", "sub_sector": "醫療生技"},
-    "0388.HK": {"name": "香港交易所", "sector": "2800.HK", "sub_sector": "金融與高息"},
-    "0939.HK": {"name": "建設銀行", "sector": "2800.HK", "sub_sector": "金融與高息"},
-    "1658.HK": {"name": "郵儲銀行", "sector": "2800.HK", "sub_sector": "金融與高息"},
-    "0941.HK": {"name": "中國移動", "sector": "2800.HK", "sub_sector": "金融與高息"},
-    "0883.HK": {"name": "中國海洋石油", "sector": "2800.HK", "sub_sector": "金融與高息"},
-    "0697.HK": {"name": "首程控股", "sector": "2800.HK", "sub_sector": "工業與基建"},
-    "9981.HK": {"name": "沃爾核材", "sector": "2800.HK", "sub_sector": "工業與基建"},
-}
-
-SIGNAL_PRIORITY = {
-    "buy_2a": 1,
-    "watch": 2,
-    "exit_50": 3,
-    "trim_2b": 4,
-    "short_4a": 5,
-    "hold_2": 6,
-    "stage_3": 7,
-    "neutral": 8,
-    "avoid_4": 9,
-}
 
 
-def normalize_hk_ticker(raw_code: str) -> str:
-    digits = "".join(ch for ch in str(raw_code) if ch.isdigit())
-    if not digits:
-        return ""
-    if len(digits) == 5 and digits.startswith("0"):
-        digits = digits[1:]
-    else:
-        digits = digits.zfill(4)
-    return f"{digits}.HK"
-
-
-def fetch_hkex_southbound_list() -> tuple[dict, dict]:
-    """從港交所披露易（HKEXnews）抓取最新全市場港股通（南向）成份股名單與北水持股比例"""
-    urls = [
-        "https://www3.hkexnews.hk/sdw/search/mutualmarket_c.aspx?t=hk",
-        "https://www3.hkexnews.hk/sdw/search/mutualmarket.aspx?t=hk",
-    ]
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept-Language": "zh-HK,zh-TW;q=0.9,en;q=0.8",
-    }
-
-    for url in urls:
-        try:
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=25) as resp:
-                raw_html = resp.read().decode("utf-8", errors="ignore")
-
-            rows = re.findall(r"<tr[^>]*>(.*?)</tr>", raw_html, flags=re.S)
-            stock_map = {}
-            holding_map = {}
-
-            for row_html in rows:
-                code_m = re.search(
-                    r'class="col-stock-code"[^>]*>.*?class="mobile-list-body"[^>]*>(.*?)</div>',
-                    row_html,
-                    flags=re.S,
-                )
-                name_m = re.search(
-                    r'class="col-stock-name"[^>]*>.*?class="mobile-list-body"[^>]*>(.*?)</div>',
-                    row_html,
-                    flags=re.S,
-                )
-                pct_m = re.search(
-                    r'class="col-shareholding-percent"[^>]*>.*?class="mobile-list-body"[^>]*>(.*?)</div>',
-                    row_html,
-                    flags=re.S,
-                )
-                if not code_m:
-                    continue
-
-                raw_code = re.sub(r"<[^>]+>", "", code_m.group(1)).strip()
-                yf_ticker = normalize_hk_ticker(raw_code)
-                if not yf_ticker or len(yf_ticker) > 8:
-                    continue
-
-                raw_name = re.sub(r"<[^>]+>", "", name_m.group(1)).strip() if name_m else ""
-                clean_name = html.unescape(raw_name).strip()
-                stock_map[yf_ticker] = clean_name
-
-                if pct_m:
-                    raw_pct = re.sub(r"<[^>]+>", "", pct_m.group(1)).strip()
-                    if raw_pct:
-                        holding_map[yf_ticker] = f"北水持股 {raw_pct}"
-
-            if len(stock_map) >= 300:
-                print(f"[HKEX] 成功從港交所同步 {len(stock_map)} 隻港股通合資格股份")
-                return stock_map, holding_map
-        except Exception as e:
-            print(f"[HKEX Warn] 嘗試讀取 {url} 失敗: {e}")
-
-    return {}, {}
-
-
-def load_local_ggt_file(filepath: str = "ggt_list.txt") -> dict:
-    loaded = {}
-    if not os.path.exists(filepath):
-        return loaded
-
-    with open(filepath, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = re.split(r"[\s,\t]+", line, maxsplit=1)
-            yf_ticker = normalize_hk_ticker(parts[0])
-            if not yf_ticker or len(yf_ticker) > 8:
-                continue
-            stock_name = parts[1].strip() if len(parts) > 1 else ""
-            loaded[yf_ticker] = stock_name
-    return loaded
-
-
-def build_ggt_universe() -> tuple[dict, str, dict]:
-    """組合港股通股票池：優先自動同步港交所 550+ 隻名單，亦支援完整 ggt_list.txt 覆蓋"""
-    universe = {k: dict(v) for k, v in CORE_GGT_POOL.items()}
-    hkex_stocks, holding_map = fetch_hkex_southbound_list()
-
-    # 若手動建立的 ggt_list.txt 超過 50 隻，視為使用者自訂完整名單
-    local_map = load_local_ggt_file("ggt_list.txt")
-    if len(local_map) >= 50:
-        for yf_ticker, stock_name in local_map.items():
-            if yf_ticker in universe:
-                if stock_name:
-                    universe[yf_ticker]["name"] = stock_name
-            else:
-                universe[yf_ticker] = {
-                    "name": stock_name or hkex_stocks.get(yf_ticker, yf_ticker),
-                    "sector": "3033.HK",
-                    "sub_sector": "港股通成份股",
-                }
-        return universe, f"自訂港股通名單 ({len(universe)} 隻)", holding_map
-
-    # 預設使用港交所官方全市場港股通名單（約 550+ 隻）
-    if hkex_stocks:
-        for yf_ticker, stock_name in hkex_stocks.items():
-            if yf_ticker in universe:
-                if stock_name and universe[yf_ticker]["name"] == yf_ticker:
-                    universe[yf_ticker]["name"] = stock_name
-            else:
-                universe[yf_ticker] = {
-                    "name": stock_name or yf_ticker,
-                    "sector": "3033.HK",
-                    "sub_sector": "港股通成份股",
-                }
-        # 併入本地少量額外自選股（如有）
-        for yf_ticker, stock_name in local_map.items():
-            if yf_ticker not in universe:
-                universe[yf_ticker] = {
-                    "name": stock_name or yf_ticker,
-                    "sector": "3033.HK",
-                    "sub_sector": "港股通成份股",
-                }
-        return universe, f"港交所全市場港股通 ({len(universe)} 隻)", holding_map
-
-    return universe, f"港股通核心觀察池 ({len(universe)} 隻)", holding_map
-
-
-def clean_hk_df(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty:
-        return pd.DataFrame()
-    df = df.dropna(subset=["Close"]).copy()
-    if df.empty:
-        return pd.DataFrame()
-    latest_idx = df.index[-1]
-    df = df[(df["Volume"] > 0) | (df.index == latest_idx)]
-    return df
-
-
-def fetch_all_histories(symbols: list[str], chunk_size: int = 60) -> dict:
-    """分批高效下載全市場 550+ 隻歷史日線"""
-    history_map = {}
-    for i in range(0, len(symbols), chunk_size):
-        chunk = symbols[i : i + chunk_size]
-        try:
-            raw = yf.download(
-                chunk,
-                period="14mo",
-                interval="1d",
-                group_by="ticker",
-                threads=True,
-                progress=False,
-            )
-            for sym in chunk:
-                try:
-                    sub_df = raw[sym] if isinstance(raw.columns, pd.MultiIndex) else raw
-                    cleaned = clean_hk_df(sub_df)
-                    if not cleaned.empty:
-                        history_map[sym] = cleaned
-                except Exception:
-                    pass
-        except Exception as e:
-            print(f"[Batch Warn] 批次 {i // chunk_size + 1} 下載異常: {e}")
-        time.sleep(0.25)
-
-    # 針對核心重點池中的遺漏標的進行單隻補抓
-    missing_core = [s for s in CORE_GGT_POOL.keys() if s in symbols and s not in history_map]
-    for sym in missing_core:
-        try:
-            df_single = yf.Ticker(sym).history(period="14mo", interval="1d", auto_adjust=False)
-            cleaned = clean_hk_df(df_single)
-            if not cleaned.empty:
-                history_map[sym] = cleaned
-        except Exception:
-            pass
-
-    return history_map
-
-
-def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df["SMA50"] = df["Close"].rolling(50).mean()
-    df["SMA150"] = df["Close"].rolling(150).mean()
-    df["SMA200"] = df["Close"].rolling(200).mean()
-    df["VOL20"] = df["Volume"].shift(1).rolling(20).mean()
-    df["VOL_RATIO"] = df["Volume"] / df["VOL20"]
-    df["BASE_HIGH_60"] = df["High"].shift(1).rolling(60).max()
-    df["BASE_LOW_60"] = df["Low"].shift(1).rolling(60).min()
-    df["GAP_UP"] = df["Low"] > df["High"].shift(1)
-    return df
-
-
-def classify_stock(
-    ticker: str,
-    meta: dict,
+def analyze_single_stock(
+    symbol: str,
+    name: str,
+    sector: str,
     df: pd.DataFrame,
-    sector_strong: bool,
-    southbound_status: str,
-) -> dict:
-    sector_etf = meta["sector"]
-    sub_sector = meta["sub_sector"]
+    bench_2800_df: pd.DataFrame,
+    is_market_bullish: bool = True,
+) -> Dict[str, Any]:
+    """
+    對單隻港股通標的執行 Stan Weinstein 現代版四階段分析、大升浪共振評級與分級止盈判定。
+    注意：df 與 bench_2800_df 必須按日期升序排列，且使用「前復權」價格。
+    """
+    if len(df) < 200 or len(bench_2800_df) < 200:
+        return {}
 
-    if df.empty or len(df) < 210:
-        close_val = round(float(df["Close"].iloc[-1]), 2) if not df.empty else 0.0
+    data = df.copy()
+    bench = bench_2800_df[["Close"]].rename(columns={"Close": "Bench_Close"})
+    data = data.join(bench, how="inner")
+    if len(data) < 200:
+        return {}
+
+    # 1. 核心均線與斜率
+    data["MA50"] = data["Close"].rolling(50).mean()
+    data["MA200"] = data["Close"].rolling(200).mean()
+    data["MA50_Slope"] = data["MA50"] - data["MA50"].shift(5)
+    data["MA200_Slope"] = data["MA200"] - data["MA200"].shift(20)
+    data["MA200_Slope_Pct"] = np.where(
+        data["MA200"].shift(20) > 0,
+        (data["MA200"] - data["MA200"].shift(20)) / data["MA200"].shift(20) * 100,
+        0.0,
+    )
+
+    # 2. 乖離率與 20 日量比
+    data["Bias_50D"] = (data["Close"] - data["MA50"]) / data["MA50"] * 100
+    data["Bias_200D"] = (data["Close"] - data["MA200"]) / data["MA200"] * 100
+    data["Vol_MA20"] = data["Volume"].rolling(20).mean()
+    data["Vol_Ratio_20D"] = np.where(
+        data["Vol_MA20"] > 0, data["Volume"] / data["Vol_MA20"], 0.0
+    )
+
+    # 3. 相對強度（RS vs 2800.HK）
+    data["RS"] = data["Close"] / data["Bench_Close"]
+    data["RS_MA50"] = data["RS"].rolling(50).mean()
+    data["RS_Prev_High_40"] = data["RS"].shift(1).rolling(40).max()
+
+    # 4. K 線結構與區間高低點
+    data["Pct_Change"] = data["Close"].pct_change() * 100
+    body = (data["Close"] - data["Open"]).abs()
+    upper_shadow = data["High"] - np.maximum(data["Open"], data["Close"])
+    day_range = data["High"] - data["Low"]
+
+    data["Close_Pos"] = np.where(day_range > 0, (data["Close"] - data["Low"]) / day_range, 0.5)
+    data["Upper_Shadow_Ratio"] = np.where(
+        body > 0, upper_shadow / body, np.where(upper_shadow > 0, 99.0, 0.0)
+    )
+    data["Prev_High_40"] = data["High"].shift(1).rolling(40).max()
+    data["Prev_Low_60"] = data["Low"].shift(1).rolling(60).min()
+    data["Max_Bias_5D"] = data["Bias_50D"].rolling(5).max()
+
+    # 5. 未補向上跳空缺口檢測（近 15 日內）
+    gap_info = "無"
+    for idx in range(len(data) - 15, len(data)):
+        if idx <= 0:
+            continue
+        if data["Low"].iloc[idx] > data["High"].iloc[idx - 1] * 1.005:
+            gap_low = round(float(data["High"].iloc[idx - 1]), 2)
+            gap_high = round(float(data["Low"].iloc[idx]), 2)
+            # 檢查缺口之後至今最低價是否未跌破缺口下緣
+            subsequent_min = data["Low"].iloc[idx:].min()
+            if subsequent_min > gap_low:
+                gap_info = f"HK${gap_low}-{gap_high}"
+
+    # 6. 北水動向（若無傳入欄位則預設 0）
+    has_nb = "Northbound_Net_Buy" in data.columns
+    nb_3d = float(data["Northbound_Net_Buy"].tail(3).sum()) if has_nb else 0.0
+    nb_status = (
+        "北水連續淨買入" if nb_3d > 5_000_000 else ("北水淨流出" if nb_3d < -5_000_000 else "北水持平")
+    )
+
+    curr = data.iloc[-1]
+    prev = data.iloc[-2]
+
+    close_px = round(float(curr["Close"]), 2)
+    pct_chg = round(float(curr["Pct_Change"]), 2)
+    bias_50 = round(float(curr["Bias_50D"]), 2)
+    bias_200 = round(float(curr["Bias_200D"]), 2)
+    vol_ratio = round(float(curr["Vol_Ratio_20D"]), 2)
+    ma50_val = round(float(curr["MA50"]), 2)
+    ma200_slope_pct = round(float(curr["MA200_Slope_Pct"]), 2)
+
+    # =========================================================================
+    # 評估 200 日線斜率與 RS 共振狀態
+    # =========================================================================
+    ma200_up_or_flat = ma200_slope_pct >= -0.3  # 走平轉升或穩步向上
+    rs_leading = (curr["RS"] > curr["RS_MA50"]) and (
+        curr["RS"] >= curr["RS_Prev_High_40"] * 0.98
+    )
+    rs_above_ma = curr["RS"] > curr["RS_MA50"]
+
+    if ma200_up_or_flat and rs_leading:
+        resonance_tier = "黃金共振"
+        slope_rs_label = f"200D走平/向上 ({ma200_slope_pct:+.1f}%) · RS領先創高"
+    elif (not ma200_up_or_flat) and rs_leading:
+        resonance_tier = "早期先鋒"
+        slope_rs_label = f"200D仍微降 ({ma200_slope_pct:+.1f}%) · RS強勢領先"
+    elif ma200_up_or_flat and (not rs_above_ma):
+        resonance_tier = "補漲落後"
+        slope_rs_label = f"200D向上 ({ma200_slope_pct:+.1f}%) · RS走平轉弱"
+    else:
+        resonance_tier = "弱勢結構"
+        slope_rs_label = f"200D向下 ({ma200_slope_pct:+.1f}%) · RS弱於大市"
+
+    # =========================================================================
+    # 評估假突破風險標記（供前端「過濾假突破」開關使用）
+    # =========================================================================
+    is_fake_breakout_risk = bool(
+        (vol_ratio < 1.2)
+        or (vol_ratio > 5.0 and curr["Upper_Shadow_Ratio"] > 1.8)
+        or (bias_50 > 12.0)
+        or (has_nb and nb_3d < -5_000_000)
+    )
+    is_golden_entry_zone = bool(
+        (2.0 <= bias_50 <= 8.0) and (1.5 <= vol_ratio <= 3.5) and (not is_fake_breakout_risk)
+    )
+
+    # =========================================================================
+    # 狀態機判定（優先級互斥）
+    # =========================================================================
+    tags: List[str] = []
+    if gap_info != "無":
+        tags.append("gap")
+    if nb_3d > 5_000_000:
+        tags.append("northbound")
+
+    # 1. Stage 4A / 空頭
+    if (
+        curr["Close"] < curr["MA50"]
+        and curr["MA50_Slope"] < 0
+        and curr["Close"] < curr["Prev_Low_60"]
+        and (curr["MA50"] < curr["MA200"] or curr["Close"] < curr["MA200"])
+    ):
+        tags.append("stage4")
         return {
-            "ticker": ticker,
-            "name": meta["name"],
-            "is_ggt": True,
-            "southbound_flow": southbound_status,
-            "sector_etf": sector_etf,
-            "sector_name": SECTOR_ETFS.get(sector_etf, sector_etf),
-            "sub_sector": sub_sector,
-            "sector_strong": sector_strong,
-            "close": close_val,
-            "change_pct": 0.0,
-            "sma50": 0.0,
-            "sma150": 0.0,
-            "sma200": 0.0,
-            "dist_50": 0.0,
-            "dist_200": 0.0,
-            "vol_ratio": 0.0,
-            "base_high": 0.0,
-            "base_low": 0.0,
-            "unfilled_gap": None,
-            "stage": "上市未滿200日 / 暫無報價",
-            "signal_type": "neutral",
-            "priority": SIGNAL_PRIORITY["neutral"],
-            "action_note": f"有效交易日 {len(df)} 日，暫未形成 200 日均線基準",
+            "symbol": symbol,
+            "name": name,
+            "sector": sector,
+            "nb_status": nb_status,
+            "close": close_px,
+            "pct_change": pct_chg,
+            "stage": "🔻 Stage 4A / 空頭",
+            "stage_code": "stage4",
+            "resonance_tier": resonance_tier,
+            "slope_rs_label": slope_rs_label,
+            "bias_50d": bias_50,
+            "bias_200d": bias_200,
+            "vol_ratio": vol_ratio,
+            "gap": gap_info,
+            "is_golden_resonance": False,
+            "is_golden_entry": False,
+            "is_fake_risk": True,
+            "advice": "【Level 4 清倉 100%】50日線下彎並跌破近60日箱體底部，結構已破壞，無條件離場不抄底。",
+            "tags": tags,
         }
 
-    latest = df.iloc[-1]
-    prev = df.iloc[-2]
-    sma200_20d_ago = df["SMA200"].iloc[-20]
+    # 2. 右側破 50 日線分級防守（Level 2 / Level 3）
+    if curr["Close"] < curr["MA50"]:
+        tags.append("warning")
+        cond_vol_break = (bias_50 < -2.5) and (vol_ratio > 1.5)
+        cond_two_days = (curr["Close"] < curr["MA50"]) and (prev["Close"] < prev["MA50"])
+        cond_slope_rs = (curr["MA50_Slope"] < 0) and (not rs_above_ma)
 
-    close = float(latest["Close"])
-    sma50 = float(latest["SMA50"])
-    sma150 = float(latest["SMA150"])
-    sma200 = float(latest["SMA200"])
-    vol_ratio = float(latest["VOL_RATIO"]) if pd.notna(latest["VOL_RATIO"]) else 0.0
-    base_high = float(latest["BASE_HIGH_60"])
-    base_low = float(latest["BASE_LOW_60"])
+        reasons = []
+        if cond_vol_break:
+            reasons.append(f"放量擊穿50D線(乖離{bias_50}%/量比{vol_ratio}x)")
+        if cond_two_days:
+            reasons.append("連續2日收於50D線下方")
+        if cond_slope_rs:
+            reasons.append("50D線下彎且RS跌破均線")
 
-    sma200_slope = (sma200 - sma200_20d_ago) / sma200_20d_ago * 100
-    dist_50 = (close - sma50) / sma50 * 100
-    dist_200 = (close - sma200) / sma200 * 100
-
-    recent_5 = df.iloc[-5:]
-    unfilled_gap_level = None
-    for i in range(len(recent_5)):
-        row = recent_5.iloc[i]
-        if row["GAP_UP"]:
-            prev_high = float(df.iloc[-5 + i - 1]["High"])
-            subsequent_low = float(recent_5.iloc[i:]["Low"].min())
-            if subsequent_low > prev_high:
-                unfilled_gap_level = round(prev_high, 2)
-
-    stage = "Stage 1 底部震盪"
-    signal_type = "neutral"
-    action_note = f"觀察箱體整理 (HK${base_low:.2f}–HK${base_high:.2f})，等待帶量突破頸線與 200 日線"
-
-    broke_out_today = close > base_high and prev["Close"] <= base_high
-    above_200 = close > sma200
-
-    if above_200 and (
-        broke_out_today
-        or (close > base_high * 0.98 and dist_200 < 12 and sma200_slope > -1.0)
-    ):
-        if vol_ratio >= 1.5:
-            stage = "Stage 2A 理想突破"
-            signal_type = "buy_2a"
-            action_note = (
-                f"油箱有老虎（量比 {vol_ratio:.1f}x）：突破建倉 50%，"
-                f"回測 HK${base_high:.2f} 頸線守穩再加碼 50%"
-            )
+        if reasons or (not is_market_bullish):
+            reason_txt = "；".join(reasons) if reasons else "大盤基準轉弱且個股破50D線"
+            return {
+                "symbol": symbol,
+                "name": name,
+                "sector": sector,
+                "nb_status": nb_status,
+                "close": close_px,
+                "pct_change": pct_chg,
+                "stage": "⚠️ 破50日線（確認轉弱）",
+                "stage_code": "warning",
+                "resonance_tier": resonance_tier,
+                "slope_rs_label": slope_rs_label,
+                "bias_50d": bias_50,
+                "bias_200d": bias_200,
+                "vol_ratio": vol_ratio,
+                "gap": gap_info,
+                "is_golden_resonance": False,
+                "is_golden_entry": False,
+                "is_fake_risk": True,
+                "advice": f"【Level 3 減倉 70%-75%】{reason_txt}。僅留底倉觀察箱體下緣，再破即全清。",
+                "tags": tags,
+            }
         else:
-            stage = "Stage 2A 觀察（量能待補）"
-            signal_type = "watch"
-            action_note = f"已站上 200 日線與前高，但量比僅 {vol_ratio:.1f}x，防範假突破"
-    elif above_200 and close < sma50:
-        stage = "Stage 2 轉弱（破 50 日線）"
-        signal_type = "exit_50"
-        action_note = f"現代版防守警訊：跌破 50 日線 (HK${sma50:.2f})，宜果斷離場觀望"
-    elif above_200 and dist_200 >= 20:
-        stage = "Stage 2B 延伸末段"
-        signal_type = "trim_2b"
-        action_note = f"遠離 200 日線 (+{dist_200:.1f}%)，若出現後期缺口宜分批止盈減碼"
-    elif above_200 and close >= sma50:
-        stage = "Stage 2 上升趨勢"
-        signal_type = "hold_2"
-        action_note = f"穩守 50 日線 (HK${sma50:.2f}) 上方，續抱並以 50 日線作為移動防守線"
-    elif not above_200 and prev["Close"] >= prev["SMA200"] and sma50 < sma150:
-        stage = "Stage 4A 轉空警訊"
-        signal_type = "short_4a"
-        action_note = (
-            f"跌破 200 日線轉弱；防守參考：站回 150 日線 (HK${sma150:.2f}) 減半，"
-            f"站回 50 日線 (HK${sma50:.2f}) 解除"
-        )
-    elif not above_200 and close < sma50 and sma50 < sma200:
-        stage = "Stage 4 下跌趨勢"
-        signal_type = "avoid_4"
-        action_note = "處於第四階段空頭格局，切忌逆勢抄底或向下攤平"
-    else:
-        stage = "Stage 3 / 過渡震盪"
-        signal_type = "stage_3"
-        action_note = f"均線糾結或頭部派發區，留意 200 日線 (HK${sma200:.2f}) 攻防"
+            return {
+                "symbol": symbol,
+                "name": name,
+                "sector": sector,
+                "nb_status": nb_status,
+                "close": close_px,
+                "pct_change": pct_chg,
+                "stage": "⚠️ 初破50日線（觀察）",
+                "stage_code": "warning",
+                "resonance_tier": resonance_tier,
+                "slope_rs_label": slope_rs_label,
+                "bias_50d": bias_50,
+                "bias_200d": bias_200,
+                "vol_ratio": vol_ratio,
+                "gap": gap_info,
+                "is_golden_resonance": False,
+                "is_golden_entry": False,
+                "is_fake_risk": False,
+                "advice": f"【Level 2 觀察2日 / 減倉0-20%】縮量微破50D線(HK${ma50_val})，若第3日未收復則執行減倉。",
+                "tags": tags,
+            }
 
+    # 3. 左側 2B 止盈 / 極端乖離放量滯漲（Level 1）
+    is_bull_extended = (
+        curr["MA50"] > curr["MA200"]
+        and curr["MA50_Slope"] > 0
+        and curr["Max_Bias_5D"] >= 15.0
+    )
+    if is_bull_extended:
+        cond_2b = (
+            curr["High"] > curr["Prev_High_40"]
+            and curr["Close"] < curr["Prev_High_40"]
+            and curr["Close_Pos"] < 0.35
+        )
+        cond_churn = (
+            bias_50 > 18.0
+            and vol_ratio > 2.0
+            and (abs(curr["Pct_Change"]) <= 1.5 or curr["Upper_Shadow_Ratio"] > 2.0)
+        )
+        if cond_2b or cond_churn:
+            tags.append("warning")
+            trigger = "2B假突破前高回落" if cond_2b else f"50D乖離達{bias_50}%高位放量滯漲"
+            nb_note = "且近3日北水轉淨賣出" if (has_nb and nb_3d < -5_000_000) else ""
+            return {
+                "symbol": symbol,
+                "name": name,
+                "sector": sector,
+                "nb_status": nb_status,
+                "close": close_px,
+                "pct_change": pct_chg,
+                "stage": "⚠️ 2B止盈（高位派發）",
+                "stage_code": "warning",
+                "resonance_tier": resonance_tier,
+                "slope_rs_label": slope_rs_label,
+                "bias_50d": bias_50,
+                "bias_200d": bias_200,
+                "vol_ratio": vol_ratio,
+                "gap": gap_info,
+                "is_golden_resonance": resonance_tier == "黃金共振",
+                "is_golden_entry": False,
+                "is_fake_risk": True,
+                "advice": f"【Level 1 主動減倉 30%-50%】{trigger}{nb_note}。停止追高，止損上移至前波段低點。",
+                "tags": tags,
+            }
+
+    # 4. Stage 2A 突破（剛突破 40 日箱體頂部，且站穩 50 日線）
+    is_stage2a_breakout = (
+        curr["Close"] > curr["Prev_High_40"]
+        and curr["Close"] > curr["MA50"]
+        and curr["MA50_Slope"] >= 0
+        and bias_50 <= 15.0
+    )
+    if is_stage2a_breakout:
+        tags.append("stage2a")
+        tags.append("stage2")
+        stop_loss = round(ma50_val * 0.985, 2)
+        if is_golden_entry_zone and resonance_tier == "黃金共振":
+            advice = f"【首選買點 · 標準倉 10-15%】乖離與量比均在黃金區且雙因子共振；止損參考 HK${stop_loss}（50D線下1.5%）。"
+        elif is_fake_breakout_risk:
+            advice = f"【謹慎防假突破】量比({vol_ratio}x)/乖離({bias_50}%)或北水未完全配合，建議等回踩頸線縮量企穩再部署。"
+        else:
+            pos_tip = "輕倉試探 5-7%" if resonance_tier == "早期先鋒" else "分批建倉"
+            advice = f"【Stage 2A 突破 · {pos_tip}】結構定性為「{resonance_tier}」，止損設於 HK${stop_loss}。"
+
+        return {
+            "symbol": symbol,
+            "name": name,
+            "sector": sector,
+            "nb_status": nb_status,
+            "close": close_px,
+            "pct_change": pct_chg,
+            "stage": "🚀 Stage 2A 突破",
+            "stage_code": "stage2a",
+            "resonance_tier": resonance_tier,
+            "slope_rs_label": slope_rs_label,
+            "bias_50d": bias_50,
+            "bias_200d": bias_200,
+            "vol_ratio": vol_ratio,
+            "gap": gap_info,
+            "is_golden_resonance": resonance_tier == "黃金共振",
+            "is_golden_entry": is_golden_entry_zone,
+            "is_fake_risk": is_fake_breakout_risk,
+            "advice": advice,
+            "tags": tags,
+        }
+
+    # 5. Stage 2 多頭延續
+    if curr["Close"] >= curr["MA50"] and curr["MA50"] > curr["MA200"]:
+        tags.append("stage2")
+        pullback_tip = (
+            "正處縮量回踩50D線低吸觀察窗（量比低於0.8x）"
+            if (0 <= bias_50 <= 3.5 and vol_ratio < 0.85)
+            else f"沿上升趨勢持有，移動止損參考50D線 HK${ma50_val}"
+        )
+        return {
+            "symbol": symbol,
+            "name": name,
+            "sector": sector,
+            "nb_status": nb_status,
+            "close": close_px,
+            "pct_change": pct_chg,
+            "stage": "📈 Stage 2 多頭",
+            "stage_code": "stage2",
+            "resonance_tier": resonance_tier,
+            "slope_rs_label": slope_rs_label,
+            "bias_50d": bias_50,
+            "bias_200d": bias_200,
+            "vol_ratio": vol_ratio,
+            "gap": gap_info,
+            "is_golden_resonance": resonance_tier == "黃金共振",
+            "is_golden_entry": is_golden_entry_zone,
+            "is_fake_risk": False,
+            "advice": f"【多頭持有 · {resonance_tier}】{pullback_tip}。",
+            "tags": tags,
+        }
+
+    # 6. Stage 1 / 3 震盪觀察
     return {
-        "ticker": ticker,
-        "name": meta["name"],
-        "is_ggt": True,
-        "southbound_flow": southbound_status,
-        "sector_etf": sector_etf,
-        "sector_name": SECTOR_ETFS.get(sector_etf, sector_etf),
-        "sub_sector": sub_sector,
-        "sector_strong": sector_strong,
-        "close": round(close, 2),
-        "change_pct": round((close - float(prev["Close"])) / float(prev["Close"]) * 100, 2),
-        "sma50": round(sma50, 2),
-        "sma150": round(sma150, 2),
-        "sma200": round(sma200, 2),
-        "dist_50": round(dist_50, 2),
-        "dist_200": round(dist_200, 2),
-        "vol_ratio": round(vol_ratio, 2),
-        "base_high": round(base_high, 2),
-        "base_low": round(base_low, 2),
-        "unfilled_gap": unfilled_gap_level,
-        "stage": stage,
-        "signal_type": signal_type,
-        "priority": SIGNAL_PRIORITY.get(signal_type, 99),
-        "action_note": action_note,
+        "symbol": symbol,
+        "name": name,
+        "sector": sector,
+        "nb_status": nb_status,
+        "close": close_px,
+        "pct_change": pct_chg,
+        "stage": "⏸️ Stage 1 / 3 震盪",
+        "stage_code": "neutral",
+        "resonance_tier": resonance_tier,
+        "slope_rs_label": slope_rs_label,
+        "bias_50d": bias_50,
+        "bias_200d": bias_200,
+        "vol_ratio": vol_ratio,
+        "gap": gap_info,
+        "is_golden_resonance": False,
+        "is_golden_entry": False,
+        "is_fake_risk": False,
+        "advice": "均線尚未理順多頭排列，繼續觀察底部放量突破訊號。",
+        "tags": tags,
     }
 
 
-def main():
-    ggt_universe, universe_source, holding_map = build_ggt_universe()
-
-    all_symbols = list(dict.fromkeys([BENCHMARK] + list(SECTOR_ETFS.keys()) + list(ggt_universe.keys())))
-    raw_histories = fetch_all_histories(all_symbols, chunk_size=60)
-
-    processed = {}
-    for sym, df in raw_histories.items():
-        if len(df) >= 210:
-            processed[sym] = compute_indicators(df)
-        else:
-            processed[sym] = df
-
-    if BENCHMARK not in processed or len(processed[BENCHMARK]) < 210:
-        raise RuntimeError(f"無法取得大盤基準 {BENCHMARK} 完整數據，終止掃描。")
-
-    bench_df = processed[BENCHMARK]
-    bench_latest = bench_df.iloc[-1]
-    bench_ret_20d = (bench_latest["Close"] / bench_df["Close"].iloc[-20]) - 1
-    market_above_200 = bool(bench_latest["Close"] > bench_latest["SMA200"])
-    market_above_50 = bool(bench_latest["Close"] > bench_latest["SMA50"])
-
-    sectors_summary = []
-    sector_strength_map = {}
-    for etf, label in SECTOR_ETFS.items():
-        if etf in processed and len(processed[etf]) >= 210:
-            sdf = processed[etf]
-            sl = sdf.iloc[-1]
-            s_ret_20d = (sl["Close"] / sdf["Close"].iloc[-20]) - 1
-            rs_vs_bench = (s_ret_20d - bench_ret_20d) * 100
-            is_strong = bool(
-                sl["Close"] > sl["SMA50"]
-                and sl["Close"] > sl["SMA200"]
-                and rs_vs_bench >= 0
-            )
-            sector_strength_map[etf] = is_strong
-            sectors_summary.append({
-                "etf": etf,
-                "name": label,
-                "close": round(float(sl["Close"]), 2),
-                "sma50": round(float(sl["SMA50"]), 2),
-                "sma200": round(float(sl["SMA200"]), 2),
-                "above_50": bool(sl["Close"] > sl["SMA50"]),
-                "above_200": bool(sl["Close"] > sl["SMA200"]),
-                "rs_20d": round(float(rs_vs_bench), 2),
-                "is_strong": is_strong,
-            })
-
-    results = []
-    for ticker, meta in ggt_universe.items():
-        df_item = processed.get(ticker, pd.DataFrame())
-        sb_status = holding_map.get(ticker, "港股通合資格")
-        item = classify_stock(
-            ticker,
-            meta,
-            df_item,
-            sector_strength_map.get(meta["sector"], False),
-            sb_status,
-        )
-        results.append(item)
-
-    results.sort(key=lambda x: (x["priority"], -x["vol_ratio"]))
-
-    valid_stocks = [r for r in results if r["sma200"] > 0]
-    total_valid = max(len(valid_stocks), 1)
-    stage2a_count = sum(1 for r in valid_stocks if r["signal_type"] in ("buy_2a", "watch"))
-    stage2_total = sum(1 for r in valid_stocks if r["signal_type"] in ("buy_2a", "watch", "hold_2", "trim_2b"))
-    stage4_total = sum(1 for r in valid_stocks if r["signal_type"] in ("short_4a", "avoid_4"))
-    exit50_count = sum(1 for r in valid_stocks if r["signal_type"] == "exit_50")
-
-    hkt = timezone(timedelta(hours=8))
+def export_dashboard_json(
+    macro_summary: Dict[str, Any],
+    stock_records: List[Dict[str, Any]],
+    output_path: str = "data.json",
+) -> None:
+    """輸出供 GitHub Pages 前端讀取的標準化 JSON"""
     payload = {
-        "updated_at": datetime.now(hkt).strftime("%Y-%m-%d %H:%M HKT"),
-        "universe_source": universe_source,
-        "market": {
-            "symbol": BENCHMARK_NAME,
-            "close": round(float(bench_latest["Close"]), 2),
-            "sma50": round(float(bench_latest["SMA50"]), 2),
-            "sma200": round(float(bench_latest["SMA200"]), 2),
-            "above_50": market_above_50,
-            "above_200": market_above_200,
-            "regime": "多頭健康（站穩 50 & 200 日線）"
-            if (market_above_50 and market_above_200)
-            else ("震盪警戒（跌破 50 日線，考驗 200 日線）" if market_above_200 else "空頭警戒（跌破 200 日線）"),
-        },
-        "sectors": sectors_summary,
-        "breadth": {
-            "total": len(valid_stocks),
-            "stage2a_count": stage2a_count,
-            "stage2_count": stage2_total,
-            "stage4_count": stage4_total,
-            "exit50_count": exit50_count,
-            "stage2_pct": round(stage2_total / total_valid * 100, 1),
-            "stage4_pct": round(stage4_total / total_valid * 100, 1),
-        },
-        "stocks": results,
+        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M HKT"),
+        "universe_count": len(stock_records),
+        "macro": macro_summary,
+        "stocks": stock_records,
     }
-
-    os.makedirs("data", exist_ok=True)
-    with open("data/scan_results.json", "w", encoding="utf-8") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
-    print(f"GGT Scan complete: {len(results)} stocks saved ({universe_source})")
-
-
-if __name__ == "__main__":
-    main()
